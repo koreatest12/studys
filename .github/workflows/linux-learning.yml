@@ -1,7 +1,7 @@
-name: Linux Dynamic File System & Web Share
+name: Linux Expert Ecosystem & Massive DB System
 
 on:
-  # ⏰ 10분마다 자동 갱신
+  # ⏰ 10분마다 자동 실행 (시스템 확장 및 배포)
   schedule:
     - cron: '*/10 * * * *'
   push:
@@ -18,158 +18,285 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build-deploy-ecosystem:
     runs-on: ubuntu-latest
     steps:
-      # 1. 저장소 가져오기 및 브랜치 동기화
-      - name: Checkout & Sync
+      # 1. 초기화 및 강제 동기화 (충돌 방지 최우선)
+      - name: Checkout & Force Sync
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Force Sync with Main
+      - name: Force Clean Build (Expert Mode)
         run: |
-          git config --global user.name "File-System-Bot"
+          git config --global user.name "Expert-System-Bot"
           git config --global user.email "bot@noreply.github.com"
+          # Main 브랜치로 강제 리셋 및 클린업
           git checkout -B main origin/main
-          # 기존 충돌 유발 파일 제거 (새로 생성하기 위해)
-          rm -rf output_data/source/zombie_exec
+          rm -rf output_data
           rm -f index.html
+          echo "✅ Workspace Cleaned & Synced."
 
-      # 2. 리눅스 환경 구축 (PDF 엔진)
-      - name: Install Tools
+      # 2. 필수 시스템 도구 설치
+      - name: Install Dependencies
         run: |
           sudo apt-get update || true
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk xzdec
-          
-      - name: Init Directories
-        run: mkdir -pv output_data/{manuals/pdf,manuals/markdown,logs,source}
+          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3 wget curl
 
-      # 3. 리눅스 실습 데이터 생성 (PDF, 로그 등)
-      - name: Generate Content
+      - name: Init Directory Structure
         run: |
-          # Markdown & PDF 생성
-          MD="output_data/manuals/markdown/Linux_Guide.md"
-          echo "# Linux System Manual" > $MD
-          echo "Generated at $(date)" >> $MD
-          echo "## Files" >> $MD
-          ls -R output_data >> $MD
-          
-          pandoc "$MD" -o "output_data/manuals/pdf/Linux_Guide.pdf" --pdf-engine=xelatex -V mainfont="NanumGothic" || true
-          wget -q -O output_data/manuals/gnu_coreutils.pdf https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
-          
-          # 좀비 프로세스 & 로그 생성
-          gcc -x c -o output_data/source/zombie_exec - <<'EOF'
-          #include <stdlib.h>
-          #include <unistd.h>
-          int main() { if(fork()>0) sleep(5); else exit(0); return 0; }
-          EOF
-          ./output_data/source/zombie_exec &
-          sleep 1
-          ps aux | grep 'Z\|defunct' > output_data/logs/zombie.log
-          
-          # 암호 감사 로그
-          echo "root:x:0:0:..." > output_data/logs/passwd_sample.log
+          # 체계적인 디렉토리 구조 생성
+          mkdir -pv output_data/database/sql_dumps
+          mkdir -pv output_data/database/live_db
+          mkdir -pv output_data/source_code/java
+          mkdir -pv output_data/source_code/python
+          mkdir -pv output_data/manuals/official_gnu_docs
+          mkdir -pv output_data/manuals/generated
+          mkdir -pv output_data/system_logs
 
-      # 🟢 [핵심 기능] 파이썬으로 모든 파일을 스캔하여 홈페이지(index.html) 자동 생성
-      - name: Generate Dynamic File Index (Python)
+      # 🟢 [기능 1] 시스템 업데이트 시뮬레이션 및 로그 기록
+      - name: System Update & Logging
+        run: |
+          echo "=== 🔄 Running System Updates ==="
+          LOG_FILE="output_data/system_logs/update_history_$(date +%Y%m%d).log"
+          
+          echo "[$(date)] Starting Package List Update..." > $LOG_FILE
+          sudo apt-get update >> $LOG_FILE 2>&1
+          
+          echo "[$(date)] Simulation: Upgrading Packages..." >> $LOG_FILE
+          # 실제 업그레이드는 시간이 오래 걸리므로 시뮬레이션(-s) 모드로 기록
+          sudo apt-get upgrade -s >> $LOG_FILE 2>&1
+          
+          echo "[$(date)] Disk Space Check..." >> $LOG_FILE
+          df -h >> $LOG_FILE
+          
+          echo "✅ System Update Log Generated."
+
+      # 🟢 [기능 2] 리눅스 핵심 매뉴얼 대량 다운로드 (Library 구축)
+      - name: Download Massive Linux Manuals
+        run: |
+          echo "=== 📚 Downloading Official GNU Manuals ==="
+          DOC_DIR="output_data/manuals/official_gnu_docs"
+          
+          # GNU 공식 미러 사이트 등에서 핵심 매뉴얼 PDF 수집 (에러 무시 옵션 적용)
+          wget -q -O "$DOC_DIR/bash_reference.pdf" https://www.gnu.org/software/bash/manual/bash.pdf || true
+          wget -q -O "$DOC_DIR/coreutils.pdf" https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
+          wget -q -O "$DOC_DIR/make.pdf" https://www.gnu.org/software/make/manual/make.pdf || true
+          wget -q -O "$DOC_DIR/grep.pdf" https://www.gnu.org/software/grep/manual/grep.pdf || true
+          wget -q -O "$DOC_DIR/sed.pdf" https://www.gnu.org/software/sed/manual/sed.pdf || true
+          wget -q -O "$DOC_DIR/awk_gawk.pdf" https://www.gnu.org/software/gawk/manual/gawk.pdf || true
+          wget -q -O "$DOC_DIR/tar.pdf" https://www.gnu.org/software/tar/manual/tar.pdf || true
+          wget -q -O "$DOC_DIR/libc.pdf" https://www.gnu.org/software/libc/manual/pdf/libc.pdf || true
+          
+          echo "✅ Expert Manual Library Built."
+
+      # 🟢 [기능 3] 대량 DB 생성 및 DDL (Python Script)
+      - name: Generate Enterprise DB & DDL
+        run: |
+          echo "=== 🗄️ Generating Database & DDL ==="
+          
+          cat <<'EOF' > db_gen.py
+          import sqlite3
+          import random
+          import datetime
+          import os
+
+          db_path = "output_data/database/live_db/enterprise_system.db"
+          sql_dump_path = "output_data/database/sql_dumps/full_schema.sql"
+
+          conn = sqlite3.connect(db_path)
+          cur = conn.cursor()
+
+          # --- [1] DDL: 테이블 대량 생성 ---
+          print("Creating Tables...")
+          
+          # Users, Products, Orders, Logs, Depts 생성
+          cur.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, email TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);")
+          cur.execute("CREATE TABLE IF NOT EXISTS products (product_id INTEGER PRIMARY KEY AUTOINCREMENT, product_name TEXT, price DECIMAL(10, 2), stock INTEGER, sku TEXT UNIQUE);")
+          cur.execute("CREATE TABLE IF NOT EXISTS orders (order_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, total DECIMAL(10, 2), ordered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(user_id));")
+          cur.execute("CREATE TABLE IF NOT EXISTS access_logs (log_id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT, action TEXT, code INTEGER, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP);")
+          cur.execute("CREATE TABLE IF NOT EXISTS departments (dept_id INTEGER PRIMARY KEY, dept_name TEXT, location TEXT);")
+
+          # Views & Indexes
+          cur.execute("CREATE INDEX IF NOT EXISTS idx_email ON users(email);")
+          cur.execute("CREATE VIEW IF NOT EXISTS v_sales AS SELECT u.username, o.total FROM users u JOIN orders o ON u.user_id = o.user_id;")
+
+          # --- [2] DML: 대량 데이터 삽입 ---
+          print("Inserting Data...")
+          users = [f'emp_{i:03d}' for i in range(1, 201)] # 200명
+          for u in users:
+              cur.execute("INSERT INTO users (username, email, role) VALUES (?, ?, ?)", (u, f"{u}@corp.com", random.choice(['USER','ADMIN','MANAGER'])))
+          
+          for i in range(1, 101): # 상품 100개
+              cur.execute("INSERT INTO products (product_name, price, stock, sku) VALUES (?, ?, ?, ?)", (f"Prod-{i}", random.uniform(10, 1000), random.randint(0,500), f"SKU-{i:04d}"))
+
+          # 로그 2000개
+          actions = ['LOGIN', 'LOGOUT', 'QUERY', 'UPDATE', 'DELETE']
+          for _ in range(2000):
+              cur.execute("INSERT INTO access_logs (ip, action, code) VALUES (?, ?, ?)", (f"10.0.0.{random.randint(1,255)}", random.choice(actions), 200))
+
+          conn.commit()
+          
+          # --- [3] SQL Dump Export ---
+          with open(sql_dump_path, 'w', encoding='utf-8') as f:
+              for line in conn.iterdump():
+                  f.write('%s\n' % line)
+          conn.close()
+          EOF
+          
+          python3 db_gen.py
+
+      # 🟢 [기능 4] 연동 소스 코드 자동 생성
+      - name: Generate Code (Java/Python)
+        run: |
+          # Java Entity
+          cat <<'EOF' > output_data/source_code/java/UserEntity.java
+          package com.enterprise.core.entity;
+          import jakarta.persistence.*;
+          import lombok.Data;
+          @Entity @Table(name="users") @Data
+          public class UserEntity {
+              @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+              private Long userId;
+              @Column(unique=true) private String username;
+              private String email;
+          }
+          EOF
+          
+          # Python Connector
+          cat <<'EOF' > output_data/source_code/python/connector.py
+          import sqlite3
+          def connect(): return sqlite3.connect('enterprise_system.db')
+          EOF
+
+      # 🟢 [기능 5] 전문가급 파일 공유 대시보드 (검색 기능 탑재)
+      - name: Generate Smart Dashboard (With Search)
         run: |
           cat <<'EOF' > build_index.py
-          import os
-          import datetime
+          import os, datetime
 
-          root_dir = "."
-          output_dir = "output_data"
-          html_content = """
+          html = """
           <!DOCTYPE html>
           <html lang="ko">
           <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Linux File Share System</title>
+              <title>Linux Expert Ecosystem</title>
               <style>
-                  body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; padding: 20px; }
-                  .container { max-width: 1000px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 20px; }
-                  h1 { border-bottom: 2px solid #007bff; padding-bottom: 10px; color: #007bff; }
-                  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                  th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-                  th { background-color: #f8f9fa; }
-                  tr:hover { background-color: #f1f1f1; }
-                  a { text-decoration: none; color: #333; font-weight: 500; display: block; }
-                  a:hover { color: #007bff; }
-                  .icon { margin-right: 10px; }
-                  .dir { color: #ffc107; }
-                  .file { color: #6c757d; }
-                  .footer { margin-top: 30px; text-align: center; color: #888; font-size: 0.9em; }
+                  :root { --primary: #00bcd4; --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; }
+                  body { font-family: 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 20px; margin: 0; }
+                  .container { max-width: 1200px; margin: 0 auto; }
+                  header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary); padding-bottom: 20px; margin-bottom: 20px; }
+                  h1 { color: var(--primary); margin: 0; }
+                  
+                  /* Search Bar */
+                  .search-box { width: 100%; max-width: 400px; padding: 10px; border-radius: 5px; border: 1px solid #444; background: #2c2c2c; color: white; font-size: 16px; }
+                  
+                  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 8px; overflow: hidden; }
+                  th, td { padding: 15px; text-align: left; border-bottom: 1px solid #333; }
+                  th { background: #2c2c2c; color: var(--primary); text-transform: uppercase; font-size: 0.85em; }
+                  tr:hover { background: #2a2a2a; }
+                  a { color: #fff; text-decoration: none; font-weight: 500; }
+                  a:hover { color: var(--primary); text-decoration: underline; }
+                  
+                  .tag { padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; }
+                  .tag-sql { background: #ff9800; color: #000; }
+                  .tag-pdf { background: #f44336; color: #fff; }
+                  .tag-code { background: #2196f3; color: #fff; }
+                  .tag-log { background: #4caf50; color: #000; }
+                  .tag-db { background: #9c27b0; color: #fff; }
+                  
+                  .footer { margin-top: 30px; text-align: center; color: #666; font-size: 0.9em; }
               </style>
           </head>
           <body>
               <div class="container">
-                  <h1>📂 Linux File Share System</h1>
-                  <p>All files in the repository are automatically indexed below.</p>
-                  
-                  <table>
-                      <thead>
-                          <tr>
-                              <th>Type</th>
-                              <th>File Name / Path</th>
-                              <th>Action</th>
-                          </tr>
-                      </thead>
+                  <header>
+                      <div>
+                          <h1>🐧 Linux Expert Ecosystem</h1>
+                          <small>Massive DB • Full Manuals • System Logs</small>
+                      </div>
+                      <input type="text" id="searchInput" class="search-box" placeholder="🔍 Search files (e.g., sql, manual, log)..." onkeyup="filterTable()">
+                  </header>
+
+                  <table id="fileTable">
+                      <thead><tr><th>Type</th><th>File Name</th><th>Path</th><th>Action</th></tr></thead>
                       <tbody>
           """
 
-          # output_data 폴더를 순회하며 파일 목록 생성
-          for root, dirs, files in os.walk(output_dir):
+          for root, dirs, files in os.walk("output_data"):
               for file in files:
-                  full_path = os.path.join(root, file)
-                  # 윈도우 스타일 경로(\)를 웹 표준(/)으로 변환
-                  web_path = full_path.replace(os.sep, '/')
+                  path = os.path.join(root, file).replace(os.sep, '/')
                   
-                  # 아이콘 및 유형 결정
-                  icon = "📄"
-                  if file.endswith('.pdf'): icon = "📕"
-                  elif file.endswith('.log'): icon = "📝"
-                  elif file.endswith('.c'): icon = "💻"
-                  elif file.endswith('.exe') or '.' not in file: icon = "⚙️"
+                  # Tagging
+                  ext = file.split('.')[-1].lower()
+                  tag_class = "tag-file"
+                  tag_name = ext.upper()
                   
-                  html_content += f"""
+                  if ext == 'sql': tag_class, tag_name = 'tag-sql', 'SQL DUMP'
+                  elif ext == 'pdf': tag_class, tag_name = 'tag-pdf', 'MANUAL PDF'
+                  elif ext in ['java', 'py', 'c']: tag_class, tag_name = 'tag-code', 'SOURCE CODE'
+                  elif ext == 'log': tag_class, tag_name = 'tag-log', 'SYSTEM LOG'
+                  elif ext == 'db': tag_class, tag_name = 'tag-db', 'LIVE DB'
+                  
+                  html += f"""
                   <tr>
-                      <td><span class="icon">{icon}</span></td>
-                      <td><a href="{web_path}" target="_blank">{web_path}</a></td>
-                      <td><a href="{web_path}" download>⬇️ Download</a></td>
+                      <td><span class="tag {tag_class}">{tag_name}</span></td>
+                      <td><strong>{file}</strong></td>
+                      <td><span style="color:#888; font-size:0.9em">{path}</span></td>
+                      <td><a href="{path}" download>⬇️ Download</a></td>
                   </tr>
                   """
 
-          html_content += f"""
+          html += f"""
                       </tbody>
                   </table>
                   <div class="footer">
-                      Last Scanned: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")} <br>
-                      Powered by GitHub Actions & Python Indexer
+                      Last Updated: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")} | Powered by GitHub Actions
                   </div>
               </div>
+
+              <script>
+                  function filterTable() {{
+                      var input, filter, table, tr, td, i, txtValue;
+                      input = document.getElementById("searchInput");
+                      filter = input.value.toUpperCase();
+                      table = document.getElementById("fileTable");
+                      tr = table.getElementsByTagName("tr");
+                      for (i = 0; i < tr.length; i++) {{
+                          // Search in File Name (Column 1) and Path (Column 2)
+                          tdName = tr[i].getElementsByTagName("td")[1];
+                          tdPath = tr[i].getElementsByTagName("td")[2];
+                          if (tdName || tdPath) {{
+                              txtValueName = tdName.textContent || tdName.innerText;
+                              txtValuePath = tdPath.textContent || tdPath.innerText;
+                              if (txtValueName.toUpperCase().indexOf(filter) > -1 || txtValuePath.toUpperCase().indexOf(filter) > -1) {{
+                                  tr[i].style.display = "";
+                              }} else {{
+                                  tr[i].style.display = "none";
+                              }}
+                          }}       
+                      }}
+                  }}
+              </script>
           </body>
           </html>
           """
 
           with open("index.html", "w", encoding="utf-8") as f:
-              f.write(html_content)
-          
-          print("✅ index.html generated with dynamic file list.")
+              f.write(html)
           EOF
           
-          # 파이썬 스크립트 실행
           python3 build_index.py
 
-      # 4. Git 저장소 업데이트 (강제 푸시로 충돌 회피)
-      - name: Update Repository
+      # 6. 저장소 업데이트 (Git Push)
+      - name: Commit & Push Updates
         run: |
           git add .
-          git commit -m "Auto-Index: Update Files & Web [$(date)]" || echo "No changes"
+          git commit -m "Auto-Update: Expert System & Massive Data [$(date)]" || echo "No changes"
           git push origin main || echo "Push skipped"
 
-      # 5. GitHub Pages 배포 (Jekyll)
+      # 7. 배포 (GitHub Pages)
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
@@ -185,7 +312,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build-and-deploy
+    needs: build-deploy-ecosystem
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
