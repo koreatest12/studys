@@ -134,7 +134,7 @@ jobs:
           ps aux | grep 'Z\|defunct' | grep -v grep > output_data/logs/zombie_evidence.log || echo "No Zombie Found" >> output_data/logs/zombie_evidence.log
           cat output_data/logs/zombie_evidence.log
 
-      - name: 5. PDF Server: Convert & Publish
+      - name: 5. PDF Server:Convert & Publish
         run: |
           echo "=== 🔄 Converting Markdown to PDF ==="
           
