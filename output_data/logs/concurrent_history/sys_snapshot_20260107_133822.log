@@ -1,16 +1,3 @@
-=== System Snapshot at 20260107_133822 ===
---- Load Average ---
- 13:38:25 up 2 min,  0 user,  load average: 1.32, 0.82, 0.34
---- Memory Usage ---
-               total        used        free      shared  buff/cache   available
-Mem:            15Gi       1.0Gi       6.3Gi        48Mi       8.7Gi        14Gi
-Swap:          4.0Gi          0B       4.0Gi
---- Zombie Processes Detect ---
-USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-runner      4860  0.0  0.0      0     0 ?        Z    13:38   0:00 [zombie_run_1] <defunct>
-runner      4864  0.0  0.0      0     0 ?        Z    13:38   0:00 [zombie_run_2] <defunct>
-runner      4865  0.0  0.0      0     0 ?        Z    13:38   0:00 [zombie_run_5] <defunct>
-runner      4866  0.0  0.0      0     0 ?        Z    13:38   0:00 [zombie_run_3] <defunct>
-runner      4868  0.0  0.0      0     0 ?        Z    13:38   0:00 [zombie_run_4] <defunct>
---- Total Process Count ---
-171
+version https://git-lfs.github.com/spec/v1
+oid sha256:e44e2dc2692d9ec2de0a382fdc600e42fbbc1e2eb4fdb1081cf55172b638e017
+size 952
