@@ -1,2 +1,0 @@
-USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-runner      3874  0.0  0.0      0     0 ?        Z    12:48   0:00 [zombie_exec] <defunct>

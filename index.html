@@ -1,0 +1,47 @@
+---
+layout: default
+title: Linux File System
+---
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linux System Dashboard</title>
+    <style>
+        body { font-family: sans-serif; background: #f4f4f9; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; }
+        h1 { border-bottom: 2px solid #4CAF50; padding-bottom: 10px; color: #2c3e50; }
+        .section { margin-top: 20px; }
+        .btn { display: inline-block; padding: 10px 15px; margin: 5px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }
+        .btn.pdf { background: #dc3545; }
+        .btn.log { background: #ffc107; color: black; }
+        .timestamp { color: #888; font-size: 0.9em; text-align: right; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐧 Linux System File Share</h1>
+        <p class="timestamp">Last Updated: Wed Jan  7 12:56:50 UTC 2026</p>
+
+        <div class="section">
+            <h2>📚 PDF Manuals</h2>
+            <a href="output_data/manuals/pdf/Linux_Master_Guide.pdf" class="btn pdf">⬇️ Generated Manual (PDF)</a>
+            <a href="output_data/manuals/gnu_coreutils.pdf" class="btn pdf">⬇️ GNU Official Docs (PDF)</a>
+        </div>
+
+        <div class="section">
+            <h2>🔍 System Logs</h2>
+            <a href="output_data/logs/zombie_status.log" class="btn log">🧟 Zombie Process Log</a>
+            <a href="output_data/logs/passwd_audit.log" class="btn log">🔑 Password Audit Log</a>
+        </div>
+        
+        <div class="section">
+            <h2>💻 C Source Code</h2>
+            <a href="output_data/source/zombie_exec" class="btn">💾 Zombie Binary</a>
+        </div>
+        
+        <p style="margin-top:40px; text-align:center; color:#999;">Powered by GitHub Actions & Jekyll</p>
+    </div>
+</body>
+</html>
