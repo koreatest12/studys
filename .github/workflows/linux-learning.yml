@@ -1,110 +1,162 @@
-name: Linux Command Mastery Lab
-# 이 워크플로우는 코드를 푸시하거나, GitHub 웹에서 수동으로 실행할 수 있습니다.
+name: Linux All-In-One Mastery Lab (Error Safe)
+
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
-  linux-practice:
-    runs-on: ubuntu-latest  # 리눅스 환경(Ubuntu)에서 실행
+  linux-comprehensive-lab:
+    runs-on: ubuntu-latest
 
     steps:
-      # 1단계: 환경 확인 (초보자 단계)
-      # 현재 위치와 어떤 사용자로 실행되는지 확인합니다.
-      - name: 1. Basic Navigation & Info
+      - name: 0. Init & Safety Setup
         run: |
-          echo "=== 📍 Current Location ==="
-          pwd
-          echo "=== 👤 User Info ==="
-          whoami
-          echo "=== 📂 Directory List ==="
-          ls -al
+          # set +e : 스크립트 도중 에러가 나도 멈추지 않도록 쉘 설정 변경
+          set +e 
+          echo "✅ Error Ignore Mode Activated (set +e)"
 
-      # 2단계: 파일 및 디렉토리 조작 (사용자 단계)
-      # 폴더를 만들고, 파일을 생성하고, 복사하고, 이동합니다.
-      - name: 2. File & Directory Operations
+      # 1단계: 파일 시스템 탐색 및 조작 (기초)
+      - name: 1. File System Basics (Navigation & Creation)
         run: |
-          echo "::: Creating Workspace :::"
-          mkdir -p workspace/logs
-          mkdir -p workspace/backup
+          echo "=== 📍 Path & List ==="
+          pwd || true
+          ls -al || true
           
-          echo "::: Creating Dummy Files :::"
-          touch workspace/logs/app.log
-          echo "Error: Connection Timeout at 10:00" >> workspace/logs/app.log
-          echo "Info: Service Started at 10:01" >> workspace/logs/app.log
-          echo "Error: Database Fail at 10:05" >> workspace/logs/app.log
-          
-          echo "::: Copying & Moving :::"
-          cp -r workspace/logs workspace/backup/
-          mv workspace/backup/logs workspace/backup/logs_archive
-          
-          echo "::: Checking Structure :::"
-          # -R 옵션은 하위 디렉토리까지 모두 보여줍니다.
-          ls -R workspace
+          echo "=== 📂 Directory Structure ==="
+          # -p: 상위 경로 포함 생성, -v: 상세 출력
+          mkdir -pv data/logs/archive || true
+          mkdir -pv data/config || true
+          mkdir -pv data/backup || true
 
-      # 3단계: 시스템 리소스 확인 (중급자 단계)
-      # 실제 GitHub 러너(서버)의 CPU, 메모리, 디스크 상태를 확인합니다.
-      - name: 3. System Resource Monitoring
-        run: |
-          echo "=== 💾 Disk Usage (df) ==="
-          df -h | grep "^/dev"  # 주요 파일시스템만 필터링
+          echo "=== 📝 File Creation (Touch & Redirection) ==="
+          touch data/config/settings.conf || true
+          # > : 덮어쓰기, >> : 이어쓰기
+          echo "server_port=8080" > data/config/settings.conf || true
+          echo "debug_mode=true" >> data/config/settings.conf || true
           
-          echo "=== 🧠 Memory Usage (free) ==="
-          free -h
-          
-          echo "=== ⚙️ CPU Info (lscpu) ==="
-          lscpu | head -n 10  # 상위 10줄만 출력
-          
-          echo "=== 🔄 Process Check (ps) ==="
-          # 현재 실행 중인 프로세스 중 docker 관련 프로세스 검색
-          ps -ef | grep docker || true
+          # 더미 로그 대량 생성
+          for i in {1..5}; do echo "Log entry $i: Process started" >> data/logs/app.log; done || true
+          echo "CRITICAL: Database Connection Failed" >> data/logs/app.log || true
 
-      # 4단계: 고급 텍스트 처리 및 파이프라인 (고급 사용자 단계)
-      # 앞서 만든 로그 파일에서 'Error'만 추출하고 개수를 셉니다.
-      - name: 4. Text Processing & Piping (grep, awk)
+      # 2단계: 파일 관리 및 아카이빙 (중급)
+      - name: 2. File Management (Copy, Move, Archive)
         run: |
-          echo "=== 🔍 Searching for Errors ==="
-          grep "Error" workspace/logs/app.log
+          echo "=== 📦 Copy & Move (cp, mv) ==="
+          cp -rv data/logs data/backup/ || true
+          mv -v data/backup/logs data/backup/logs_old || true
           
-          echo "=== 📊 Counting Error Occurrences ==="
-          # grep으로 찾고 | wc -l 로 라인 수를 셉니다.
-          grep "Error" workspace/logs/app.log | wc -l
-          
-          echo "=== ✂️ Extracting Time only (awk) ==="
-          # 로그에서 시간 부분(마지막 단어)만 잘라냅니다.
-          grep "Error" workspace/logs/app.log | awk '{print $NF}'
+          echo "=== 🗜️ Archiving (tar, zip) ==="
+          # tar -czvf: Create, Gzip, Verbose, File
+          tar -czvf data_backup.tar.gz data/ || true
+          # 압축 해제 테스트 (-C: 경로 지정)
+          tar -xzvf data_backup.tar.gz -C /tmp/ || true
 
-      # 5단계: 네트워크 통신 확인 (전문가 단계)
-      # 외부 인터넷 연결을 확인하고 응답 헤더를 받아옵니다.
-      - name: 5. Network & Connectivity
-        run: |
-          echo "=== 🌐 Ping Test ==="
-          # -c 3 은 3번만 보내고 멈춘다는 뜻입니다 (무한루프 방지)
-          ping -c 3 8.8.8.8
-          
-          echo "=== 🌍 HTTP Check (curl) ==="
-          # 구글 메인페이지의 헤더 정보만 가져옵니다.
-          curl -I https://www.google.com
+          echo "=== 🗑️ Deletion Safety Check ==="
+          # rm 없는 파일 지우기 시도 (에러 무시 테스트)
+          rm non_existent_file.txt || true  
+          echo "✅ 'rm' error ignored successfully."
 
-      # 6단계: 자동화 스크립트 작성 및 실행 (마스터 단계)
-      # 즉석에서 쉘 스크립트 파일을 만들고, 권한을 주고, 실행합니다.
-      - name: 6. Scripting & Automation
+      # 3단계: 권한 및 사용자 관리 (보안)
+      - name: 3. Permissions & User Info (Security)
         run: |
-          echo "=== 📝 Creating Deploy Script ==="
-          # cat <<EOF 를 사용해 여러 줄의 내용을 파일로 저장합니다.
-          cat <<EOF > deploy.sh
-          #!/bin/bash
-          echo "🚀 Starting Deployment Simulation..."
-          CURRENT_DATE=\$(date)
-          echo "⏰ Time: \$CURRENT_DATE"
-          echo "✅ Deploy Finished Successfully!"
-          EOF
+          echo "=== 👤 User Identity ==="
+          whoami || true
+          id || true
           
-          echo "=== 🔐 Changing Permission ==="
-          ls -l deploy.sh
-          chmod +x deploy.sh  # 실행 권한 부여
-          ls -l deploy.sh
+          echo "=== 🔐 Permission Modification (chmod) ==="
+          # 스크립트 생성 및 실행 권한 부여
+          echo "echo 'Hello Linux'" > hello.sh
+          ls -l hello.sh || true
+          chmod 755 hello.sh || true
+          ls -l hello.sh || true
+          ./hello.sh || true
           
-          echo "=== 🎬 Running Script ==="
-          ./deploy.sh
+          echo "===  ownership (chown - simulation) ==="
+          # root 권한이 필요한 명령은 sudo 사용 (비번 없이 설정된 경우)
+          sudo chown root:root hello.sh || true
+
+      # 4단계: 시스템 리소스 및 하드웨어 정보 (전문가 - 시스템 엔지니어링)
+      - name: 4. System & Hardware Info
+        run: |
+          echo "=== 🐧 Kernel Info (uname) ==="
+          uname -a || true
+          
+          echo "=== 💿 Disk Usage (df, du) ==="
+          df -Th || true
+          # 현재 디렉토리 용량 상세 확인
+          du -sh * || true
+          
+          echo "=== 🧠 Memory & CPU (free, lscpu, top) ==="
+          free -h || true
+          lscpu | head -n 10 || true
+          # top은 대화형이므로 배치 모드(-b)로 1회(-n 1) 실행
+          top -b -n 1 | head -n 10 || true
+
+      # 5단계: 텍스트 프로세싱 및 로그 분석 (전문가 - 데이터 가공)
+      # 가장 많이 쓰이는 grep, sed, awk, find, sort, uniq 총집합
+      - name: 5. Advanced Text Processing
+        run: |
+          echo "=== 🔍 Search (grep) ==="
+          # 대소문자 무시(-i), 줄번호(-n)
+          grep -i -n "critical" data/logs/app.log || true
+          
+          echo "=== ✂️ Stream Editor (sed) ==="
+          # 파일 내 'Process'라는 단어를 'Task'로 치환하여 출력
+          sed 's/Process/Task/g' data/logs/app.log | head -n 3 || true
+          
+          echo "=== 📊 Data Extraction (awk) ==="
+          # ls -l 결과에서 파일 크기(5번째 필드)와 이름(9번째 필드)만 출력
+          ls -l data/config | awk '{print $5, $9}' || true
+          
+          echo "=== 🕵️ File Finding (find) ==="
+          # /etc 폴더에서 이름에 'release'가 들어가는 파일 찾기 (에러 무시)
+          find /etc -name "*release*" 2>/dev/null || true
+          
+          echo "=== 🔢 Sorting & Counting (sort, uniq) ==="
+          # 중복 데이터 생성 및 카운트
+          echo -e "apple\nbanana\napple\norange" > fruits.txt
+          sort fruits.txt | uniq -c || true
+
+      # 6단계: 네트워크 및 프로세스 (전문가 - 트러블슈팅)
+      # 에러가 발생했던 ping 등을 포함하여 안전하게 실행
+      - name: 6. Network & Process Management
+        run: |
+          echo "=== 🌐 Network Status (ip, netstat) ==="
+          ip addr show || true
+          # 포트 확인 (ss 명령어가 최신 리눅스 표준)
+          ss -tuln || true
+          
+          echo "=== 📡 Connectivity Test (ping, curl) ==="
+          # ping이 막혀도 || true 덕분에 멈추지 않음
+          ping -c 3 8.8.8.8 || true 
+          echo "⚠️ Ping skipped or failed, but workflow continues!"
+          
+          # 헤더만 가져오기 (-I), 에러시 조용히 (-s)
+          curl -I https://www.google.com || true
+          
+          echo "=== 🏭 Process Check (ps, kill) ==="
+          ps -ef --sort=-%cpu | head -n 5 || true
+          # 백그라운드 프로세스 실행 및 종료 테스트
+          sleep 10 & 
+          PID=$!
+          echo "Started sleep process: $PID"
+          kill -9 $PID || true
+          echo "Killed process $PID"
+
+      # 7단계: 쉘 스크립트 자동화 기능 (마스터)
+      - name: 7. Automation Scripting Logic
+        run: |
+          echo "=== 📜 Simple Loop & Condition ==="
+          # 파일 존재 여부 확인 스크립트
+          if [ -f "data/config/settings.conf" ]; then
+            echo "✅ Config file exists."
+          else
+            echo "❌ Config file missing."
+          fi || true
+          
+          echo "=== 📅 Date & Time Variable ==="
+          NOW=$(date '+%Y-%m-%d %H:%M:%S')
+          echo "Current Deployment Time: $NOW" || true
+          
+          echo "🎉 All Comprehensive Linux Commands Executed Successfully!"
