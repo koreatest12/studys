@@ -1,7 +1,7 @@
-name: Enterprise File Server & Massive Cloud V8
+name: Linux Mega Server & Reboot System V9
 
 on:
-  # ⏰ 10분마다 서버 동기화 및 데이터 생성
+  # ⏰ 10분마다 실행 (재기동 및 데이터 생성)
   schedule:
     - cron: '*/10 * * * *'
   push:
@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  enterprise-server-job:
+  mega-server-job:
     runs-on: ubuntu-latest
     steps:
       # 1. 저장소 체크아웃
@@ -28,244 +28,217 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. 서버 초기화 및 디스크 최적화
-      - name: Initialize Server Environment
+      # 🟢 [기능 1] 극한의 용량 증설 (Max Capacity Hack)
+      - name: 💾 Maximize Disk Capacity (~40GB+)
         run: |
-          echo "=== 🚀 Booting Enterprise File Server ==="
-          git config --global user.name "System-Admin-Bot"
-          git config --global user.email "admin@server.local"
+          echo "=== 🧹 STARTING EXTREME CLEANUP ==="
+          df -h /
           
-          # 최신 상태 동기화
+          # 거대 패키지 강제 삭제 (Android, Dotnet, CodeQL, Haskell 등)
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/local/graalvm
+          
+          # Docker 이미지 정리
+          docker system prune -af
+          
+          echo "=== ✨ CLEANUP COMPLETE ==="
+          df -h /
+          echo "✅ Disk Capacity Maximized for Heavy Load."
+
+      # 2. 동기화 및 초기화
+      - name: Sync & Init
+        run: |
+          git config --global user.name "Mega-Server-Bot"
+          git config --global user.email "admin@megaserver.com"
           git pull --rebase origin main || echo "Sync OK"
           
-          # 디스크 공간 확보 (대량 파일 생성을 위해)
-          sudo rm -rf /usr/share/dotnet /opt/ghc
-          
-          # 서버 루트 디렉토리 생성 (체계적 구조)
           ROOT="File_Server_Root"
-          rm -rf "$ROOT" # 기존 데이터 정리 후 재생성 (Clean Build)
-          mkdir -pv "$ROOT"/{System/{Config,Drivers,Kernels},Users/{Admin,Guest,Developers},Database/{SQL,Backups},Logs/{Access,Error,System},Public/Documents}
-          
-          echo "✅ Server Directory Structure Created."
+          mkdir -pv "$ROOT"/{System,Data,Logs,Boot}
+          mkdir -pv output_data
 
       # 3. 필수 패키지 설치
-      - name: Install System Tools
-        run: |
-          sudo apt-get update || true
-          sudo apt-get install -y pandoc texlive-xetex fonts-nanum sqlite3 zip tree
+      - name: Install Dependencies
+        run: sudo apt-get install -y pandoc sqlite3 zip tree
 
-      # 🟢 [핵심 1] 대량 파일 생성 엔진 (Massive Generator)
-      - name: Run Massive File Generator
+      # 🟢 [기능 2] 서버 재기동 시뮬레이션 (Reboot Sequence)
+      - name: 🔄 Simulate Full Server Restart
         run: |
-          cat <<'EOF' > file_generator.py
-          import os, random, datetime, uuid
+          ROOT="File_Server_Root"
+          BOOT_LOG="$ROOT/Boot/boot_sequence_$(date +%Y%m%d_%H%M%S).log"
+          
+          echo "=== 🛑 SERVER SHUTDOWN SEQUENCE ===" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Stopping Nginx Service... [OK]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Stopping Database Engine... [OK]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Unmounting Data Volumes... [OK]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] System Halted." | tee -a "$BOOT_LOG"
+          
+          echo "..."
+          sleep 2 # 재부팅 대기 시간 시뮬레이션
+          
+          echo "=== ⚡ SERVER BOOT SEQUENCE ===" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Kernel Loaded (Linux 5.15.0-generic)" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Checking File Systems (fsck)... [CLEAN]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Mounting Volumes... [OK]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Starting Services... [OK]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] SYSTEM ONLINE." | tee -a "$BOOT_LOG"
+          
+          echo "✅ Reboot Simulation Complete."
+
+      # 🟢 [기능 3] MB 단위 대용량 파일 생성 (Python Engine)
+      - name: Run Massive Data Generator
+        run: |
+          cat <<'EOF' > mega_processor.py
+          import os, random, datetime, shutil
 
           root_dir = "File_Server_Root"
+          data_dir = f"{root_dir}/Data"
           
-          # [1] 설정 파일 생성 (Config)
-          print(">> Generating System Configs...")
-          configs = ['nginx.conf', 'httpd.conf', 'sysctl.conf', 'fstab', 'hosts']
-          for cfg in configs:
-              with open(f"{root_dir}/System/Config/{cfg}", "w") as f:
-                  f.write(f"# System Config Generated at {datetime.datetime.now()}\nserver_name localhost;\nlisten 80;\n")
+          # [1] 대용량 파일 생성 (Heavy Files)
+          print(">> Generating MB-Scale Files...")
+          # 10MB ~ 50MB 파일 5개 생성 (매번)
+          for i in range(5):
+              size_mb = random.randint(10, 50) 
+              fname = f"backup_part_{i}_{datetime.datetime.now().strftime('%H%M%S')}.dat"
+              fpath = f"{data_dir}/{fname}"
+              
+              # 더미 데이터 쓰기 (0으로 채움)
+              with open(fpath, "wb") as f:
+                  f.seek((size_mb * 1024 * 1024) - 1)
+                  f.write(b'\0')
+              
+              print(f" + Generated {fname} ({size_mb} MB)")
 
-          # [2] 로그 파일 대량 생성 (Logs)
-          print(">> Generating Massive Logs...")
-          for i in range(1, 101): # 100개 로그
-              with open(f"{root_dir}/Logs/Access/access_log_{i:03d}.log", "w") as f:
-                  f.write(f"192.168.1.{random.randint(1,255)} - - [{datetime.datetime.now()}] 'GET /index.html' 200\n" * 50)
-
-          # [3] 데이터베이스 덤프 (DB)
-          print(">> Generating SQL Dumps...")
-          for i in range(1, 21): # 20개 DB
-              with open(f"{root_dir}/Database/Backups/db_backup_{datetime.date.today()}_{i}.sql", "w") as f:
-                  f.write(f"-- MySQL Dump {i}\nCREATE TABLE users_{i} (id INT, name VARCHAR(50));\nINSERT INTO users_{i} VALUES (1, 'Admin');\n")
-
-          # [4] 사용자 문서 (Users - Random Files)
-          print(">> Generating User Documents...")
-          exts = ['txt', 'md', 'json', 'xml', 'py', 'java', 'c']
-          for user in ['Admin', 'Developers']:
-              for i in range(50):
-                  ext = random.choice(exts)
-                  fname = f"project_file_{uuid.uuid4().hex[:8]}.{ext}"
-                  with open(f"{root_dir}/Users/{user}/{fname}", "w") as f:
-                      f.write(f"// Content of {fname}\n// Created by {user}\n")
-
-          # [5] 시스템 커널 시뮬레이션
-          with open(f"{root_dir}/System/Kernels/vmlinuz-5.15.0-generic", "w") as f: f.write("BINARY_DATA_SIMULATION")
-
-          print("✅ Massive Files Generated Successfully.")
-          EOF
+          # [2] 디스크 사용량 분석
+          total, used, free = shutil.disk_usage("/")
+          used_percent = (used / total) * 100
           
-          python3 file_generator.py
-
-      # 🟢 [핵심 2] 전문가급 웹 대시보드 생성 (Web OS UI)
-      - name: Build Enterprise Dashboard
-        run: |
-          cat <<'EOF' > build_dashboard.py
-          import os, datetime
-
-          root_dir = "File_Server_Root"
-          total_files = 0
-          total_size = 0
-          file_rows = ""
-
-          # 파일 탐색 및 HTML 행 생성
-          for root, dirs, files in os.walk(root_dir):
-              for file in files:
-                  total_files += 1
-                  path = os.path.join(root, file)
-                  size = os.path.getsize(path)
-                  total_size += size
+          # [3] 웹 대시보드 생성 (게이지 바 포함)
+          def generate_dashboard():
+              files_html = ""
+              # 최신 파일 20개만 표시
+              all_files = []
+              for r, d, f in os.walk(root_dir):
+                  for file in f:
+                      all_files.append(os.path.join(r, file))
+              
+              all_files.sort(key=os.path.getmtime, reverse=True)
+              
+              for fpath in all_files[:30]:
+                  fname = os.path.basename(fpath)
+                  size = os.path.getsize(fpath)
+                  size_str = f"{size/1024/1024:.2f} MB" if size > 1024*1024 else f"{size/1024:.2f} KB"
+                  path_display = fpath.replace("File_Server_Root", "")
                   
-                  # 웹 경로 변환
-                  web_path = path.replace(os.sep, '/')
-                  parent_dir = os.path.basename(root)
-                  
-                  # 아이콘 결정
-                  ext = file.split('.')[-1]
                   icon = "📄"
-                  badge_color = "#6c757d"
-                  if ext in ['conf', 'xml', 'json']: icon, badge_color = "⚙️", "#ff9800" # Config
-                  elif ext in ['log']: icon, badge_color = "📝", "#4caf50" # Log
-                  elif ext in ['sql']: icon, badge_color = "🗄️", "#2196f3" # DB
-                  elif ext in ['py', 'java', 'c']: icon, badge_color = "💻", "#9c27b0" # Code
-                  elif 'vmlinuz' in file: icon, badge_color = "🐧", "#E91E63" # Kernel
-
-                  file_rows += f"""
-                  <tr class="file-row">
-                      <td><span class="icon">{icon}</span> {file}</td>
-                      <td><span class="badge" style="background:{badge_color}">{parent_dir}</span></td>
-                      <td>{size} B</td>
-                      <td>{datetime.datetime.now().strftime('%H:%M:%S')}</td>
-                      <td><a href="{web_path}" download class="btn-download">⬇️ Load</a></td>
+                  if fname.endswith(".log"): icon = "📜"
+                  if fname.endswith(".dat"): icon = "💾"
+                  
+                  files_html += f"""
+                  <tr>
+                      <td>{icon} {fname}</td>
+                      <td>{path_display}</td>
+                      <td><b>{size_str}</b></td>
+                      <td><a href='{fpath}' download>⬇️ Load</a></td>
                   </tr>
                   """
 
-          # HTML 템플릿 (Glassmorphism Dark Theme)
-          html = f"""
-          <!DOCTYPE html>
-          <html lang="ko">
-          <head>
-              <meta charset="UTF-8">
-              <title>Enterprise Cloud Server</title>
-              <style>
-                  :root {{ --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --accent: #38bdf8; }}
-                  body {{ font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }}
-                  .container {{ max-width: 1400px; margin: 0 auto; }}
-                  
-                  /* Header & Stats */
-                  header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 20px; background: var(--card); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }}
-                  h1 {{ margin: 0; background: linear-gradient(45deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
-                  .stats {{ display: flex; gap: 20px; }}
-                  .stat-box {{ text-align: center; }}
-                  .stat-val {{ font-size: 1.5em; font-weight: bold; color: var(--accent); }}
-                  
-                  /* Search */
-                  .search-bar {{ width: 100%; padding: 15px; background: var(--card); border: 1px solid #334155; color: white; border-radius: 8px; margin-bottom: 20px; font-size: 1.1em; }}
-                  
-                  /* File Table */
-                  .table-container {{ background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }}
-                  table {{ width: 100%; border-collapse: collapse; }}
-                  th {{ background: #334155; padding: 15px; text-align: left; color: #94a3b8; font-weight: 600; }}
-                  td {{ padding: 12px 15px; border-bottom: 1px solid #334155; }}
-                  tr:hover {{ background: #334155; }}
-                  
-                  /* Components */
-                  .badge {{ padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; color: white; }}
-                  .btn-download {{ padding: 6px 12px; background: var(--accent); color: #0f172a; text-decoration: none; border-radius: 6px; font-weight: bold; transition: 0.2s; }}
-                  .btn-download:hover {{ opacity: 0.8; }}
-                  .icon {{ margin-right: 8px; }}
-              </style>
-          </head>
-          <body>
-              <div class="container">
-                  <header>
-                      <div>
-                          <h1>☁️ Enterprise Cloud Server V8</h1>
-                          <small>Managed by GitHub Actions • Branch: main</small>
+              html = f"""
+              <!DOCTYPE html>
+              <html lang='ko'>
+              <head>
+                  <meta charset='utf-8'>
+                  <title>Mega Server V9</title>
+                  <style>
+                      body {{ background: #000; color: #0f0; font-family: 'Courier New', monospace; padding: 20px; }}
+                      .container {{ max-width: 1200px; margin: 0 auto; border: 2px solid #0f0; padding: 20px; box-shadow: 0 0 20px #0f0; }}
+                      h1 {{ text-align: center; border-bottom: 2px solid #0f0; }}
+                      
+                      /* Disk Usage Bar */
+                      .disk-box {{ margin: 20px 0; border: 1px solid #333; padding: 10px; background: #111; }}
+                      .progress-bg {{ background: #333; height: 25px; width: 100%; border-radius: 5px; overflow: hidden; }}
+                      .progress-bar {{ background: linear-gradient(90deg, #0f0, #ff0); height: 100%; width: {used_percent}%; transition: width 0.5s; }}
+                      
+                      table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                      th, td {{ border: 1px solid #0f0; padding: 10px; text-align: left; }}
+                      th {{ background: #002200; }}
+                      a {{ color: #0ff; text-decoration: none; }}
+                      
+                      .boot-log {{ background: #111; color: #aaa; padding: 10px; border: 1px solid #444; height: 150px; overflow-y: scroll; font-size: 0.9em; }}
+                  </style>
+              </head>
+              <body>
+                  <div class='container'>
+                      <h1>🖥️ MEGA SERVER STATUS: ONLINE</h1>
+                      
+                      <div class='disk-box'>
+                          <h3>💾 Disk Usage (Expanded Capacity)</h3>
+                          <div class='progress-bg'>
+                              <div class='progress-bar'></div>
+                          </div>
+                          <p>{used // (1024**3)} GB Used / {total // (1024**3)} GB Total ({used_percent:.1f}%)</p>
                       </div>
-                      <div class="stats">
-                          <div class="stat-box"><div class="stat-val">{total_files}</div><div>Files</div></div>
-                          <div class="stat-box"><div class="stat-val">{total_size / 1024:.1f} KB</div><div>Size</div></div>
-                          <div class="stat-box"><div class="stat-val">Online</div><div>Status</div></div>
+
+                      <div class='disk-box'>
+                          <h3>⚡ Last Reboot Sequence</h3>
+                          <div class='boot-log'>
+                              SYSTEM REBOOT INITIATED...<br>
+                              Stopping Services... [OK]<br>
+                              Unmounting... [OK]<br>
+                              Booting Kernel... [OK]<br>
+                              Filesystem Check... [PASSED]<br>
+                              Services Started... [OK]<br>
+                              System Ready at {datetime.datetime.now()}
+                          </div>
                       </div>
-                  </header>
 
-                  <input type="text" id="search" class="search-bar" placeholder="🔍 Search files, config, logs..." onkeyup="filterFiles()">
-
-                  <div class="table-container">
-                      <table id="fileTable">
-                          <thead><tr><th>File Name</th><th>Directory</th><th>Size</th><th>Time</th><th>Action</th></tr></thead>
-                          <tbody>
-                              {file_rows}
-                          </tbody>
+                      <h3>📂 Active Files (Top 30 Recent)</h3>
+                      <table>
+                          <tr><th>File</th><th>Path</th><th>Size</th><th>Action</th></tr>
+                          {files_html}
                       </table>
                   </div>
-              </div>
+              </body>
+              </html>
+              """
+              
+              with open("index.html", "w", encoding="utf-8") as f: f.write(html)
 
-              <script>
-                  function filterFiles() {{
-                      const input = document.getElementById('search');
-                      const filter = input.value.toUpperCase();
-                      const table = document.getElementById('fileTable');
-                      const tr = table.getElementsByTagName('tr');
-                      for (let i = 0; i < tr.length; i++) {{
-                          const td = tr[i].getElementsByTagName('td')[0];
-                          if (td) {{
-                              const txt = td.textContent || td.innerText;
-                              tr[i].style.display = txt.toUpperCase().indexOf(filter) > -1 ? "" : "none";
-                          }}
-                      }}
-                  }}
-              </script>
-          </body>
-          </html>
-          """
-
-          with open("index.html", "w", encoding="utf-8") as f: f.write(html)
-          print("✅ Enterprise Dashboard Generated.")
+          if __name__ == "__main__":
+              generate_dashboard()
           EOF
           
-          python3 build_dashboard.py
+          python3 mega_processor.py
 
-      # 4. 저장소 업로드 (koreatest12/studys 동기화)
-      - name: Deploy to Repository (Push)
+      # 4. 저장소 반영 (LFS 대용량 처리)
+      - name: Deploy to Repository
         run: |
-          echo "=== 🚀 Uploading to GitHub Repository ==="
-          
-          # LFS 설정 (대용량 파일 대비)
+          echo "=== 🚀 Syncing Massive Data ==="
           git lfs install
-          git lfs track "*.sql" "*.log"
+          git lfs track "*.dat" "*.log"
           
           git add .
-          
-          # 커밋 메시지 생성
-          MSG="Server Sync: $(find File_Server_Root -type f | wc -l) files active [$(date)]"
-          
-          git commit -m "$MSG" || echo "No changes to commit"
-          
-          # 충돌 방지 및 푸시
+          git commit -m "Mega Server: Rebooted & MB Data Added [$(date)]" || echo "No changes"
           git pull --rebase origin main || echo "Rebase Handled"
           git push origin main || echo "Push Handled"
 
-      # 5. 배포 패키지 생성 (릴리즈용)
-      - name: Create System Package
-        run: |
-          zip -r "Enterprise_Server_Backup.zip" File_Server_Root/ index.html
-
-      # 6. GitHub 릴리즈 생성
-      - name: Create Release
+      # 5. 릴리즈 패키징 (대용량 ZIP)
+      - name: Create Mega Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v$(date +%Y.%m.%d-%H%M)"
-          gh release create "$TAG" "Enterprise_Server_Backup.zip" \
-            --title "Server Backup $TAG" \
-            --notes "Auto-generated server backup with massive logs and configs." \
+          ZIP_NAME="Server_Dump_${TAG}.zip"
+          zip -r "$ZIP_NAME" File_Server_Root index.html
+          
+          gh release create "$TAG" "$ZIP_NAME" \
+            --title "Server Reboot $TAG" \
+            --notes "System rebooted. Capacity optimized. Massive files generated." \
             --target main || echo "Release skipped"
 
-      # 7. GitHub Pages 배포 (홈페이지 반영)
+      # 6. Pages 배포
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
@@ -281,7 +254,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: enterprise-server-job
+    needs: mega-server-job
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
