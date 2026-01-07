@@ -1,16 +1,16 @@
-name: Linux Mastery Lab & Auto-Save
+name: Linux Manual Download & Auto-Upload
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
-# 🟢 [중요] 토큰 없이 저장소에 파일을 쓰기 위한 권한 설정
+# 🟢 [필수] 토큰 없이 파일 업로드를 위한 권한 설정
 permissions:
   contents: write
 
 jobs:
-  linux-lab-and-push:
+  manual-download-and-push:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,63 +21,61 @@ jobs:
         run: |
           set +e 
           echo "✅ Error Ignore Mode Activated"
+          # 저장할 디렉토리 생성
+          mkdir -pv output_data/logs
+          mkdir -pv output_data/manuals
 
-      # --- [리눅스 실습: 파일 시스템] ---
-      - name: 2. File System Operations
+      # --- [기존 기능: 리눅스 명령어 실습] ---
+      - name: 2. Linux Command Practice
         run: |
-          echo "=== 📂 Creating Directories ==="
-          # 결과물을 저장할 output 폴더 생성
-          mkdir -pv output_data/logs || true
-          mkdir -pv output_data/config || true
-
-          echo "=== 📝 Creating Result Files ==="
-          # 실습 결과 파일 생성
-          echo "Linux Lab Started: $(date)" > output_data/summary.txt
-          echo "System Check: OK" >> output_data/summary.txt
+          echo "=== 🐧 Executing Linux Commands ==="
+          # 시스템 정보 수집
+          echo "[System Info]" > output_data/logs/system_info.txt
+          uname -a >> output_data/logs/system_info.txt || true
+          lscpu | head -n 10 >> output_data/logs/system_info.txt || true
           
-          # 더미 로그 생성
-          for i in {1..5}; do echo "Log $i: Processed" >> output_data/logs/app.log; done || true
+          # 네트워크 테스트 (에러 무시)
+          echo "[Network Test]" >> output_data/logs/network_test.txt
+          ping -c 3 8.8.8.8 >> output_data/logs/network_test.txt 2>&1 || echo "Ping failed but ignored" >> output_data/logs/network_test.txt
 
-      # --- [리눅스 실습: 시스템 정보] ---
-      - name: 3. System Info Collection
+      # --- [신규 기능: 공식 매뉴얼 다운로드] ---
+      - name: 3. Download Official Linux Manuals
         run: |
-          echo "=== 💾 System Stats ==="
-          # 시스템 정보를 파일로 저장
-          echo "[Disk Info]" >> output_data/summary.txt
-          df -h >> output_data/summary.txt || true
+          echo "=== 📥 Downloading Official Manuals ==="
           
-          echo "[Memory Info]" >> output_data/summary.txt
-          free -h >> output_data/summary.txt || true
+          # 1. GNU Coreutils 매뉴얼 (ls, cp, mv 등 기본 명령어 공식 문서)
+          # 출처: GNU Operating System Official Site
+          echo "Downloading GNU Coreutils Manual..."
+          wget -O output_data/manuals/gnu_coreutils_manual.pdf https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
           
-          echo "[CPU Info]" >> output_data/summary.txt
-          lscpu | head -n 10 >> output_data/summary.txt || true
+          # 2. Bash Shell 공식 레퍼런스 매뉴얼
+          # 출처: GNU Official Site
+          echo "Downloading Bash Reference Manual..."
+          wget -O output_data/manuals/bash_reference.pdf https://www.gnu.org/software/bash/manual/bash.pdf || true
 
-      # --- [리눅스 실습: 네트워크 & 에러 처리] ---
-      - name: 4. Network & Advanced Ops
-        run: |
-          echo "=== 🌐 Network Check ==="
-          # 에러가 나도 파일에 기록하고 넘어감
-          ping -c 3 8.8.8.8 >> output_data/logs/network.log 2>&1 || echo "Ping blocked but continued" >> output_data/logs/network.log
-          
-          echo "=== 🔍 Text Processing ==="
-          # 로그 라인 수 카운트 저장
-          wc -l output_data/logs/app.log >> output_data/summary.txt || true
+          # 3. Linux Kernel Admin Guide (HTML을 PDF로 변환하는 대신 주요 텍스트 다운로드 시뮬레이션)
+          # 출처: The Linux Kernel Archives
+          echo "Fetching Linux Kernel Info..."
+          curl -I https://www.kernel.org/doc/html/latest/ >> output_data/manuals/kernel_doc_header.txt || true
 
-      # --- [최종 단계: 저장소로 파일 자동 업로드 (토큰 불필요)] ---
-      - name: 5. Commit & Push Changes
+          echo "✅ Download Complete. Check 'output_data/manuals' folder."
+          ls -l output_data/manuals/
+
+      # --- [업로드 기능: 결과물 저장소 반영] ---
+      - name: 4. Upload to Repository (No Token Required)
         run: |
-          echo "=== 🚀 Prepare to Push to koreatest12/studys ==="
+          echo "=== 🚀 Pushing Data to koreatest12/studys ==="
           
-          # 1. 깃 설정 (가상 유저)
-          git config --global user.name "Linux-Lab-Bot"
+          # Git 가상 유저 설정
+          git config --global user.name "Manual-Bot"
           git config --global user.email "bot@noreply.github.com"
           
-          # 2. 변경된 파일 추가 (output_data 폴더)
+          # 다운로드한 매뉴얼과 로그 파일 추가
           git add output_data/
           
-          # 3. 커밋 (변경사항이 없으면 에러 안 나게 처리)
-          git commit -m "Results: Linux Lab Auto-Save [$(date)]" || echo "⚠️ No changes to commit"
+          # 커밋 (변경사항 없으면 에러 방지)
+          git commit -m "Auto-Update: Linux Manuals & Logs [$(date)]" || echo "⚠️ No changes to commit"
           
-          # 4. 푸시 (GITHUB_TOKEN 사용 - 별도 인증 불필요)
+          # 푸시 (permissions: contents: write 덕분에 토큰 없이 가능)
           git push
-          echo "✅ Successfully pushed results to repository!"
+          echo "🎉 Successfully uploaded manuals and logs!"
