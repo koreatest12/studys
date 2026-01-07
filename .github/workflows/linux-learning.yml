@@ -1,7 +1,7 @@
-name: Linux System Release & Package Launch
+name: Linux & Maven DevOps Massive System V7
 
 on:
-  # ⏰ 10분마다 실행 (데이터 누적 + 릴리즈 배포)
+  # ⏰ 10분마다 실행
   schedule:
     - cron: '*/10 * * * *'
   push:
@@ -12,7 +12,6 @@ permissions:
   contents: write
   pages: write
   id-token: write
-  # 🟢 [필수] 릴리즈 생성을 위한 권한
   packages: write
 
 concurrency:
@@ -20,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-deploy-job:
+  maven-devops-job:
     runs-on: ubuntu-latest
     steps:
       # 1. 저장소 가져오기
@@ -29,98 +28,156 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. 동기화 및 준비
-      - name: Sync & Prepare
+      # 2. 동기화 및 디스크 확보
+      - name: Sync & Optimize
         run: |
-          git config --global user.name "Release-Bot"
+          git config --global user.name "DevOps-Bot"
           git config --global user.email "bot@noreply.github.com"
-          git pull --rebase origin main || echo "Already up to date"
+          git pull --rebase origin main || echo "Sync OK"
           
-          mkdir -pv output_data/logs/concurrent_history
-          mkdir -pv output_data/database/snapshots
-          mkdir -pv output_data/source_code
-          echo "✅ Environment Ready."
+          # 용량 확보 (Maven 의존성 캐시 공간 등)
+          sudo rm -rf /usr/share/dotnet /opt/ghc "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af || true
+          
+          mkdir -pv output_data/{logs/maven_logs,maven_templates,manuals,database,source_code}
+          echo "✅ Environment Optimized."
 
-      # 3. 필수 도구 설치
-      - name: Install Tools
+      # 🟢 [핵심 1] Maven 및 필수 도구 설치
+      - name: Install Tools (Include Maven)
         run: |
           sudo apt-get update || true
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3 zip
+          # maven: 자바 빌드 도구 추가
+          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3 zip maven
+          
+          echo "=== Maven Version ==="
+          mvn -version
 
-      # 4. 동시성 실행 스크립트 (Zombie Process)
-      - name: Create Concurrent Runner
+      # 🟢 [핵심 2] Maven 설정 파일 및 매뉴얼 데이터 생성기
+      - name: Create Maven Data Processor
         run: |
-          # C 소스 안전 생성
-          cat <<'CSOURCE' > output_data/source_code/zombie_maker.c
-          #include <stdlib.h>
-          #include <unistd.h>
-          #include <stdio.h>
-          int main() {
-              if (fork() > 0) sleep(10);
-              else exit(0);
-              return 0;
-          }
-          CSOURCE
-
-          # 실행 스크립트
-          cat <<'EOF' > concurrent_runner.sh
-          #!/bin/bash
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          echo "=== 🚀 Concurrent Tasks [$TIMESTAMP] ==="
-          
-          gcc output_data/source_code/zombie_maker.c -o zombie_exec
-          
-          # 5개 프로세스 동시 실행
-          for i in {1..5}; do
-            ./zombie_exec &
-          done
-          
-          # 시스템 스냅샷 로그 누적
-          LOG_FILE="output_data/logs/concurrent_history/sys_snapshot_${TIMESTAMP}.log"
-          {
-            echo "snapshot_time: $TIMESTAMP"
-            uptime
-            free -h
-            ps aux | grep 'Z\|defunct'
-          } > "$LOG_FILE"
-          
-          wait
-          rm -f zombie_exec
-          echo "✅ Tasks Done."
-          EOF
-          chmod +x concurrent_runner.sh
-
-      # 5. 데이터 누적 및 대시보드 생성 (Python)
-      - name: Create Data Processor
-        run: |
-          cat <<'EOF' > data_processor.py
-          import sqlite3, os, datetime, random
+          cat <<'EOF' > maven_processor.py
+          import os, datetime, sqlite3
 
           timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-          db_path = "output_data/database/accumulated.db"
+          
+          # [1] settings.xml 템플릿 생성 (GitHub Packages 인증용)
+          def generate_maven_settings():
+              settings_content = """<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                                http://maven.apache.org/xsd/settings-1.0.0.xsd">
 
-          # [1] DB 누적
-          def accumulate_db():
-              conn = sqlite3.connect(db_path)
-              cur = conn.cursor()
-              cur.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, ts TEXT, msg TEXT);")
-              for i in range(100):
-                  cur.execute("INSERT INTO history (ts, msg) VALUES (?, ?)", (timestamp, f"Data Entry {i}"))
-              conn.commit()
+            <activeProfiles>
+              <activeProfile>github</activeProfile>
+            </activeProfiles>
+
+            <profiles>
+              <profile>
+                <id>github</id>
+                <repositories>
+                  <repository>
+                    <id>central</id>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                  </repository>
+                  <repository>
+                    <id>github</id>
+                    <url>https://maven.pkg.github.com/OWNER/REPOSITORY</url>
+                    <snapshots>
+                      <enabled>true</enabled>
+                    </snapshots>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>
+
+            <servers>
+              <server>
+                <id>github</id>
+                <username>YOUR_GITHUB_USERNAME</username>
+                <password>YOUR_PERSONAL_ACCESS_TOKEN</password>
+              </server>
+            </servers>
+          </settings>"""
               
-              # SQL 덤프 저장
-              with open(f"output_data/database/snapshots/dump_{timestamp}.sql", "w") as f:
-                  for line in conn.iterdump(): f.write(f"{line}\n")
-              conn.close()
+              with open("output_data/maven_templates/settings_template.xml", "w") as f:
+                  f.write(settings_content)
 
-          # [2] 웹 대시보드 (index.html)
+          # [2] pom.xml 템플릿 생성 (배포 설정 포함)
+          def generate_pom_template():
+              pom_content = """<project xmlns="http://maven.apache.org/POM/4.0.0"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+
+            <groupId>com.example</groupId>
+            <artifactId>github-packages-test</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+
+            <distributionManagement>
+               <repository>
+                 <id>github</id>
+                 <name>GitHub OWNER Apache Maven Packages</name>
+                 <url>https://maven.pkg.github.com/OWNER/REPOSITORY</url>
+               </repository>
+            </distributionManagement>
+          </project>"""
+              
+              with open("output_data/maven_templates/pom_deploy_template.xml", "w") as f:
+                  f.write(pom_content)
+
+          # [3] 통합 매뉴얼 (Markdown) 생성 - Maven 가이드 포함
+          def generate_manual():
+              md_path = "output_data/manuals/DevOps_Master_Guide.md"
+              with open(md_path, "w") as f:
+                  f.write(f"""---
+          title: "DevOps Master Manual (Linux & Maven)"
+          author: "Auto-Generated System"
+          date: "{datetime.datetime.now().strftime('%Y-%m-%d')}"
+          geometry: margin=1in
+          mainfont: "NanumGothic"
+          ---
+
+          # Chapter 1: Linux Basics
+          | Cmd | Desc |
+          |:---|:---|
+          | `ls -al` | List files details |
+          | `df -h` | Check disk space |
+
+          # Chapter 2: Database (SQLite)
+          This system auto-generates massive SQLite DBs every 10 mins.
+
+          # Chapter 3: GitHub Packages (Maven)
+          ## Authentication
+          GitHub Packages supports only **Personal Access Token (Classic)**.
+          Edit `~/.m2/settings.xml` to include your credentials.
+
+          ## Publishing (`mvn deploy`)
+          1. Edit `pom.xml` to add `<distributionManagement>`.
+          2. Ensure `<repository>` ID matches the server ID in `settings.xml`.
+          3. Run `mvn deploy`.
+
+          ## Installing (`mvn install`)
+          Add the dependency to your `pom.xml`:
+          ```xml
+          <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>test</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+          </dependency>
+          ```
+
+          > **Note:** Artifact names must use lowercase, numbers, and hyphens.
+          """)
+
+          # [4] 웹 대시보드 업데이트
           def update_web():
               file_list = []
               for root, dirs, files in os.walk("output_data"):
                   for file in files:
                       path = os.path.join(root, file).replace(os.sep, '/')
                       stat = os.stat(os.path.join(root, file))
-                      file_list.append({'name': file, 'path': path, 'time': stat.st_mtime})
+                      size_kb = stat.st_size / 1024
+                      file_list.append({'name': file, 'path': path, 'time': stat.st_mtime, 'size': size_kb})
               
               file_list.sort(key=lambda x: x['time'], reverse=True)
               
@@ -129,89 +186,103 @@ jobs:
               <html>
               <head>
                   <meta charset='utf-8'>
-                  <title>System Releases</title>
+                  <title>DevOps & Maven Center</title>
                   <style>
-                      body {{ background: #111; color: #eee; font-family: sans-serif; padding: 20px; }}
-                      .container {{ max-width: 1000px; margin: 0 auto; }}
+                      body {{ background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 20px; }}
+                      .container {{ max-width: 1200px; margin: 0 auto; }}
+                      h1 {{ border-bottom: 2px solid #f78166; color: #f78166; }}
                       table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                      th, td {{ padding: 10px; border-bottom: 1px solid #333; text-align: left; }}
-                      th {{ background: #222; color: #4CAF50; }}
-                      a {{ color: #2196F3; text-decoration: none; }}
+                      th {{ background: #161b22; padding: 10px; text-align: left; color: #79c0ff; }}
+                      td {{ padding: 10px; border-bottom: 1px solid #30363d; }}
+                      a {{ color: #58a6ff; text-decoration: none; }}
+                      .badge {{ padding: 3px 6px; border-radius: 4px; font-size: 0.8em; color: black; }}
+                      .xml {{ background: #f0883e; }} 
+                      .pdf {{ background: #ff7b72; }}
+                      .db {{ background: #238636; color: white; }}
                   </style>
               </head>
               <body>
                   <div class='container'>
-                      <h1>📦 System Release & File Center</h1>
-                      <p>Latest Check: {datetime.datetime.now()}</p>
-                      <table><tr><th>File</th><th>Download</th></tr>
+                      <h1>📦 Maven & Linux DevOps Center</h1>
+                      <p>Automated Templates, Manuals, and Database Logs</p>
+                      <table><tr><th>Time</th><th>Type</th><th>File</th><th>Download</th></tr>
               """
               for f in file_list:
-                  html += f"<tr><td>{f['name']}</td><td><a href='{f['path']}' download>Download</a></td></tr>"
+                  ext = f['name'].split('.')[-1]
+                  badge = "badge"
+                  if ext == 'xml': badge += " xml"
+                  elif ext == 'pdf': badge += " pdf"
+                  elif ext == 'db': badge += " db"
+                  
+                  html += f"<tr><td>{datetime.datetime.fromtimestamp(f['time'])}</td><td><span class='{badge}'>{ext.upper()}</span></td><td>{f['name']}</td><td><a href='{f['path']}' download>Download</a></td></tr>"
               html += "</table></div></body></html>"
               
               with open("index.html", "w", encoding="utf-8") as f: f.write(html)
 
           if __name__ == "__main__":
-              accumulate_db()
+              generate_maven_settings()
+              generate_pom_template()
+              generate_manual()
               update_web()
           EOF
 
-      # 6. 실행
-      - name: Execute System Logic
-        run: |
-          ./concurrent_runner.sh
-          python3 data_processor.py
+      # 3. 데이터 프로세서 실행 (템플릿 생성)
+      - name: Run Data Processor
+        run: python3 maven_processor.py
 
-      # 7. 저장소 커밋 & 푸시
+      # 🟢 [핵심 3] Maven 빌드 시뮬레이션 (유효성 검증)
+      - name: Simulate Maven Build
+        run: |
+          echo "=== 🧪 Simulating Maven Build Process ==="
+          
+          # 임시 프로젝트 생성
+          mvn archetype:generate -DgroupId=com.korea.test \
+            -DartifactId=maven-simulation \
+            -DarchetypeArtifactId=maven-archetype-quickstart \
+            -DinteractiveMode=false
+          
+          cd maven-simulation
+          
+          # 빌드 실행 및 로그 저장
+          mvn package > ../output_data/logs/maven_logs/build_$(date +%Y%m%d_%H%M%S).log 2>&1 || true
+          
+          echo "✅ Maven Build Simulation Complete."
+
+      # 4. PDF 변환 (Maven 가이드 포함)
+      - name: Convert Manual to PDF
+        run: |
+          pandoc "output_data/manuals/DevOps_Master_Guide.md" \
+            -o "output_data/manuals/DevOps_Master_Guide.pdf" \
+            --pdf-engine=xelatex -V mainfont="NanumGothic" || true
+
+      # 5. Git LFS 및 저장소 업데이트
       - name: Commit & Push
         run: |
+          git lfs install
+          git lfs track "*.db" "*.zip" "*.pdf"
+          
           git add .
-          git commit -m "System Update: Data Accumulated [$(date)]" || echo "No changes"
+          git commit -m "DevOps: Maven Templates & Manuals Updated [$(date)]" || echo "No changes"
           git pull --rebase origin main || echo "Rebase Handled"
           git push origin main || echo "Push Handled"
 
-      # 🟢 [핵심 기능 1] 배포 패키지 생성 (ZIP 압축)
-      - name: Create Distribution Package
-        run: |
-          echo "=== 📦 Packaging Artifacts ==="
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          PACKAGE_NAME="Linux_System_Package_${TIMESTAMP}.zip"
-          
-          # output_data 폴더 전체를 압축
-          zip -r "$PACKAGE_NAME" output_data/ index.html
-          
-          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
-          echo "✅ Package Created: $PACKAGE_NAME"
-
-      # 🟢 [핵심 기능 2] GitHub 릴리즈 자동 생성 및 패키지 업로드
-      - name: Create Release & Upload Assets
+      # 6. 릴리즈 패키지 생성
+      - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "=== 🚀 Launching GitHub Release ==="
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          ZIP_NAME="DevOps_Package_${TIMESTAMP}.zip"
+          zip -r "$ZIP_NAME" output_data/ index.html
           
-          # 버전 태그 생성 (시간 기반)
-          TAG_NAME="v$(date +%Y.%m.%d-%H%M)"
-          RELEASE_TITLE="System Release $TAG_NAME"
+          TAG="v$(date +%Y.%m.%d-%H%M)"
           
-          # 릴리즈 노트 작성
-          NOTES="## 🚀 Automated System Release
-          - **Build Time**: $(date)
-          - **Package**: ${{ env.PACKAGE_NAME }}
-          - **Status**: Database updated, Logs accumulated.
-          
-          > This release was automatically generated by GitHub Actions."
-          
-          # gh CLI를 사용하여 릴리즈 생성 및 파일 첨부
-          gh release create "$TAG_NAME" \
-            "${{ env.PACKAGE_NAME }}" \
-            --title "$RELEASE_TITLE" \
-            --notes "$NOTES" \
-            --target main
-            
-          echo "✅ Release Published: $TAG_NAME"
+          gh release create "$TAG" "$ZIP_NAME" \
+            --title "DevOps & Maven Release $TAG" \
+            --notes "Includes Maven settings.xml, pom.xml templates, and Guides." \
+            --target main || echo "Release skipped"
 
-      # 8. 배포 (Pages)
+      # 7. 배포 (Pages)
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
@@ -227,7 +298,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: release-deploy-job
+    needs: maven-devops-job
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
