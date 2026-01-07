@@ -1,4 +1,4 @@
-name: Linux Accumulate Data & Concurrent System
+name: Linux Fix Syntax & Accumulate System
 
 on:
   # ⏰ 10분마다 실행 (데이터 누적)
@@ -27,8 +27,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 🟢 [핵심 1] 데이터 보존을 위한 동기화 (삭제 명령 제거됨)
-      - name: Sync & Prepare (No Delete)
+      # 2. 데이터 보존을 위한 동기화 (삭제 명령 없음)
+      - name: Sync & Prepare
         run: |
           git config --global user.name "Accumulate-Bot"
           git config --global user.email "bot@noreply.github.com"
@@ -36,69 +36,94 @@ jobs:
           # 원격 저장소의 최신 데이터(누적된 파일들)를 가져옴
           git pull --rebase origin main || echo "Already up to date"
           
-          # 폴더가 없으면 생성 (있으면 그대로 둠)
+          # 폴더가 없으면 생성
           mkdir -pv output_data/logs/concurrent_history
           mkdir -pv output_data/database/snapshots
-          mkdir -pv output_data/reports
+          mkdir -pv output_data/source_code
           echo "✅ Repository Synced. Ready to ACCUMULATE data."
 
-      # 2. 필수 도구 설치
+      # 3. 필수 도구 설치
       - name: Install Tools
         run: |
           sudo apt-get update || true
           sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3
 
-      # 🟢 [핵심 2] 동시성 제어 스크립트 생성 (Concurrent Runner)
+      # 🟢 [수정됨] 에러 원인이었던 'Here-Document' 제거 및 안전한 스크립트 작성
       - name: Create Concurrent Runner Script
         run: |
+          # 1. C 소스 코드 파일 먼저 안전하게 생성 (Here-Doc 중첩 에러 방지)
+          cat <<'CSOURCE' > output_data/source_code/zombie_maker.c
+          #include <stdlib.h>
+          #include <unistd.h>
+          #include <stdio.h>
+          int main() {
+              pid_t pid = fork();
+              if (pid > 0) {
+                  // 부모 프로세스: 자식 종료를 기다리지 않고 10초간 대기 (자식은 좀비화)
+                  sleep(10);
+              } else {
+                  // 자식 프로세스: 즉시 종료
+                  exit(0);
+              }
+              return 0;
+          }
+          CSOURCE
+
+          # 2. 실행 스크립트 생성
           cat <<'EOF' > concurrent_runner.sh
           #!/bin/bash
-          
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           echo "=== 🚀 Starting Concurrent Operations [$TIMESTAMP] ==="
 
-          # [Task 1] 좀비 프로세스 대량/중복 생성 (Parallel Execution)
-          # 5개의 프로세스를 동시에 백그라운드(&)로 실행
-          echo ">>> Spawning 5 Zombie Creators concurrently..."
-          
+          # [Task 1] 좀비 프로세스 생성기 컴파일
+          gcc output_data/source_code/zombie_maker.c -o zombie_exec
+
+          # [Task 2] 동시성 테스트: 5개의 프로세스 병렬 실행
+          echo ">>> Spawning 5 Concurrent Processes..."
           for i in {1..5}; do
             (
-              sleep $((RANDOM % 3))
-              # 서브쉘에서 프로세스 생성 시늉
-              echo "Process $i running..."
-              gcc -x c -o output_data/logs/zombie_proc_$i - <<C_CODE
-                #include <stdlib.h>
-                #include <unistd.h>
-                int main() { if(fork()>0) sleep(5); else exit(0); return 0; }
-              C_CODE
-              ./output_data/logs/zombie_proc_$i &
-            ) & 
+              echo "[Job $i] Started..."
+              # 각각 다른 이름으로 복사하여 실행 (중복 수행 시뮬레이션)
+              cp zombie_exec zombie_run_$i
+              ./zombie_run_$i &
+              PID=$!
+              echo "[Job $i] PID: $PID running in background"
+            ) &
           done
 
-          # [Task 2] 시스템 리소스 스냅샷 (누적 저장)
-          LOG_FILE="output_data/logs/concurrent_history/sys_load_${TIMESTAMP}.log"
-          echo "Recording System Load to $LOG_FILE"
+          # [Task 3] 시스템 부하 및 로그 스냅샷 (누적 저장)
+          LOG_FILE="output_data/logs/concurrent_history/sys_snapshot_${TIMESTAMP}.log"
+          echo "Recording System Snapshot to $LOG_FILE"
+          
+          # 약간의 딜레이를 주어 프로세스들이 실행된 상태를 포착
+          sleep 2
           
           {
-            echo "--- Snapshot at $TIMESTAMP ---"
+            echo "=== System Snapshot at $TIMESTAMP ==="
+            echo "--- Load Average ---"
             uptime
-            echo "--- Memory ---"
+            echo "--- Memory Usage ---"
             free -h
-            echo "--- Active Processes ---"
+            echo "--- Zombie Processes Detect ---"
+            ps aux | grep 'Z\|defunct' | grep -v grep
+            echo "--- Total Process Count ---"
             ps aux | wc -l
           } > "$LOG_FILE"
 
           # 백그라운드 작업들이 안정화될 때까지 대기
           wait
+          # 임시 실행 파일 정리
+          rm -f zombie_run_* zombie_exec
           echo "✅ Concurrent Tasks Finished."
           EOF
+          
           chmod +x concurrent_runner.sh
 
-      # 🟢 [핵심 3] 데이터 누적 처리 파이썬 엔진
+      # 4. 데이터 누적 처리 파이썬 엔진 (DB 및 웹 대시보드)
       - name: Create Data Accumulator Script
         run: |
           cat <<'EOF' > data_accumulator.py
-          import sqlite3, os, datetime, random, shutil
+          import sqlite3, os, datetime, random
 
           timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
           db_path = "output_data/database/accumulated.db"
@@ -109,22 +134,21 @@ jobs:
               conn = sqlite3.connect(db_path)
               cur = conn.cursor()
               
-              # 테이블이 없으면 생성, 있으면 유지
-              cur.execute("CREATE TABLE IF NOT EXISTS access_history (id INTEGER PRIMARY KEY, timestamp TEXT, user TEXT, action TEXT);")
+              # 테이블 생성 (존재하면 건너뜀)
+              cur.execute("CREATE TABLE IF NOT EXISTS access_history (id INTEGER PRIMARY KEY, timestamp TEXT, user TEXT, action TEXT, ip TEXT);")
               
-              # 데이터 추가 (기존 데이터 삭제 안 함)
-              users = ['User_A', 'User_B', 'User_C', 'Admin', 'Robot']
-              actions = ['UPLOAD', 'DOWNLOAD', 'SYNC', 'ERROR', 'CHECK']
+              # 데이터 추가 (기존 데이터 보존 + 500건 추가)
+              users = ['User_A', 'User_B', 'Admin', 'System', 'Guest']
+              actions = ['LOGIN', 'DOWNLOAD', 'UPLOAD', 'SYNC_ERROR', 'CHECK_STATUS']
               
-              # 한 번 실행할 때마다 500건씩 추가됨 (시간이 지날수록 데이터가 늘어남)
               for _ in range(500):
-                  cur.execute("INSERT INTO access_history (timestamp, user, action) VALUES (?, ?, ?)", 
-                              (datetime.datetime.now(), random.choice(users), random.choice(actions)))
+                  cur.execute("INSERT INTO access_history (timestamp, user, action, ip) VALUES (?, ?, ?, ?)", 
+                              (datetime.datetime.now(), random.choice(users), random.choice(actions), f"192.168.1.{random.randint(1,255)}"))
               
               conn.commit()
               
               # 현재 상태 스냅샷 저장 (SQL 파일 누적)
-              dump_file = f"output_data/database/snapshots/dump_{timestamp}.sql"
+              dump_file = f"output_data/database/snapshots/db_dump_{timestamp}.sql"
               with open(dump_file, "w") as f:
                   for line in conn.iterdump(): f.write(f"{line}\n")
               
@@ -134,7 +158,6 @@ jobs:
           def update_dashboard():
               print(">> Updating Web Dashboard with History...")
               
-              # 파일 목록 수집 및 최신순 정렬
               file_list = []
               for root, dirs, files in os.walk("output_data"):
                   for file in files:
@@ -143,7 +166,7 @@ jobs:
                       mod_time = datetime.datetime.fromtimestamp(stat.st_mtime)
                       file_list.append({'name': file, 'path': path, 'time': mod_time})
               
-              # 최신 파일이 위로 오도록 정렬
+              # 최신순 정렬
               file_list.sort(key=lambda x: x['time'], reverse=True)
               
               html = f"""
@@ -157,26 +180,17 @@ jobs:
                       .container {{ max-width: 1200px; margin: 0 auto; }}
                       h1 {{ border-bottom: 3px solid #03dac6; padding-bottom: 10px; color: #03dac6; }}
                       .stats {{ background: #1e1e1e; padding: 15px; border-radius: 8px; margin-bottom: 20px; }}
-                      
-                      /* 스크롤 가능한 테이블 영역 */
-                      .table-wrapper {{ 
-                          max-height: 600px; 
-                          overflow-y: auto; 
-                          background: #1e1e1e; 
-                          border-radius: 8px; 
-                          border: 1px solid #333;
-                      }}
-                      
+                      .table-wrapper {{ max-height: 800px; overflow-y: auto; background: #1e1e1e; border-radius: 8px; border: 1px solid #333; }}
                       table {{ width: 100%; border-collapse: collapse; }}
                       th {{ position: sticky; top: 0; background: #333; color: #03dac6; padding: 12px; text-align: left; z-index: 10; }}
                       td {{ padding: 10px; border-bottom: 1px solid #2c2c2c; }}
                       tr:hover {{ background: #2c2c2c; }}
                       a {{ color: #81d4fa; text-decoration: none; }}
-                      
                       .badge {{ padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; color: black; }}
                       .sql {{ background: #ffca28; }}
                       .log {{ background: #a5d6a7; }}
                       .db {{ background: #ef5350; color: white; }}
+                      .c {{ background: #90caf9; color: black; }}
                   </style>
               </head>
               <body>
@@ -185,14 +199,11 @@ jobs:
                       <div class='stats'>
                           <strong>Total Files:</strong> {len(file_list)} <br>
                           <strong>Last Update:</strong> {datetime.datetime.now()} <br>
-                          <strong>Status:</strong> Data is growing continuously...
+                          <strong>Status:</strong> Active & Accumulating
                       </div>
-                      
                       <div class='table-wrapper'>
                           <table>
-                              <thead>
-                                  <tr><th>Time</th><th>Type</th><th>File Name</th><th>Download</th></tr>
-                              </thead>
+                              <thead><tr><th>Time</th><th>Type</th><th>File Name</th><th>Download</th></tr></thead>
                               <tbody>
               """
               
@@ -202,6 +213,7 @@ jobs:
                   if ext == 'sql': badge_class += " sql"
                   elif ext == 'log': badge_class += " log"
                   elif ext == 'db': badge_class += " db"
+                  elif ext == 'c': badge_class += " c"
                   
                   html += f"""
                   <tr>
@@ -212,15 +224,7 @@ jobs:
                   </tr>
                   """
                   
-              html += """
-                              </tbody>
-                          </table>
-                      </div>
-                      <p style='text-align:center; color:#777;'>Powered by GitHub Actions & Python</p>
-                  </div>
-              </body>
-              </html>
-              """
+              html += "</tbody></table></div></div></body></html>"
               
               with open("index.html", "w", encoding="utf-8") as f:
                   f.write(html)
@@ -230,7 +234,7 @@ jobs:
               update_dashboard()
           EOF
 
-      # 4. 실행 (동시 수행 및 누적)
+      # 5. 실행 (동시 수행 및 누적)
       - name: Execute Operations
         run: |
           echo "::: Running Concurrent Scripts :::"
@@ -239,22 +243,20 @@ jobs:
           echo "::: Running Data Accumulator :::"
           python3 data_accumulator.py
 
-      # 5. 저장소 업데이트 (누적된 파일 커밋)
+      # 6. 저장소 업데이트 (Rebase로 충돌 방지하며 커밋)
       - name: Update Repository
         run: |
           git add .
           
-          # 파일 개수 확인 로그
           FILE_COUNT=$(find output_data -type f | wc -l)
           echo "Current Total Files: $FILE_COUNT"
           
           git commit -m "Accumulate: $FILE_COUNT files stored [$(date)]" || echo "No changes"
           
-          # Rebase로 충돌 없이 업데이트
           git pull --rebase origin main || echo "Rebase conflict handled"
           git push origin main || echo "Push skipped"
 
-      # 6. 배포 (Pages)
+      # 7. 배포 (Pages)
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
