@@ -1,4 +1,4 @@
-name: Linux Manual Download & Auto-Upload
+name: Linux Manual Visual Log & Auto-Upload
 
 on:
   push:
@@ -10,72 +10,118 @@ permissions:
   contents: write
 
 jobs:
-  manual-download-and-push:
+  visual-download-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 0. Checkout Repository
+      - name: 0. Repository Checkout
         uses: actions/checkout@v4
 
-      - name: 1. Init & Safety Setup
+      - name: 1. Init & Environment Visualization
         run: |
-          set +e 
-          echo "✅ Error Ignore Mode Activated"
-          # 저장할 디렉토리 생성
+          set +e
+          echo "=========================================="
+          echo "    🚀 STARTING LINUX MASTERY LAB v2.0    "
+          echo "=========================================="
+          
+          # 현재 위치 및 사용자 시각화
+          echo "root@github-runner:~$ whoami"
+          whoami
+          echo ""
+          echo "root@github-runner:~$ pwd"
+          pwd
+          echo ""
+          
+          # 저장 폴더 생성 및 확인
+          echo "::: Creating Output Directories :::"
           mkdir -pv output_data/logs
           mkdir -pv output_data/manuals
+          echo "✅ Directories Created."
 
-      # --- [기존 기능: 리눅스 명령어 실습] ---
-      - name: 2. Linux Command Practice
+      - name: 2. System Status Dashboard (Real-time)
         run: |
-          echo "=== 🐧 Executing Linux Commands ==="
-          # 시스템 정보 수집
-          echo "[System Info]" > output_data/logs/system_info.txt
-          uname -a >> output_data/logs/system_info.txt || true
-          lscpu | head -n 10 >> output_data/logs/system_info.txt || true
+          # tee 명령어를 사용하여 화면 출력과 파일 저장을 동시에 수행합니다.
+          echo "=========================================="
+          echo "       🖥️ SYSTEM STATUS DASHBOARD         "
+          echo "=========================================="
           
-          # 네트워크 테스트 (에러 무시)
-          echo "[Network Test]" >> output_data/logs/network_test.txt
-          ping -c 3 8.8.8.8 >> output_data/logs/network_test.txt 2>&1 || echo "Ping failed but ignored" >> output_data/logs/network_test.txt
+          echo "[1] Kernel Information:"
+          uname -a | tee output_data/logs/system_info.txt
+          echo ""
+          
+          echo "[2] CPU Details (Summary):"
+          lscpu | head -n 10 | tee -a output_data/logs/system_info.txt
+          echo ""
+          
+          echo "[3] Memory Usage:"
+          free -h | tee -a output_data/logs/system_info.txt
+          echo ""
+          
+          echo "[4] Disk Space:"
+          df -Th | grep "^/dev" | tee -a output_data/logs/system_info.txt
 
-      # --- [신규 기능: 공식 매뉴얼 다운로드] ---
-      - name: 3. Download Official Linux Manuals
+      - name: 3. Downloading Manuals (Progress Visualization)
         run: |
-          echo "=== 📥 Downloading Official Manuals ==="
+          echo "=========================================="
+          echo "       📥 DOWNLOADING OFFICIAL DOCS       "
+          echo "=========================================="
           
-          # 1. GNU Coreutils 매뉴얼 (ls, cp, mv 등 기본 명령어 공식 문서)
-          # 출처: GNU Operating System Official Site
-          echo "Downloading GNU Coreutils Manual..."
-          wget -O output_data/manuals/gnu_coreutils_manual.pdf https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
-          
-          # 2. Bash Shell 공식 레퍼런스 매뉴얼
-          # 출처: GNU Official Site
-          echo "Downloading Bash Reference Manual..."
-          wget -O output_data/manuals/bash_reference.pdf https://www.gnu.org/software/bash/manual/bash.pdf || true
+          # GNU Coreutils (ls, cp 등) 매뉴얼
+          echo "1️⃣ Downloading GNU Coreutils Manual..."
+          # --show-progress: 진행바 표시
+          wget --show-progress -O output_data/manuals/gnu_coreutils.pdf https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
+          echo "   👉 File Saved: $(ls -sh output_data/manuals/gnu_coreutils.pdf)"
+          echo ""
 
-          # 3. Linux Kernel Admin Guide (HTML을 PDF로 변환하는 대신 주요 텍스트 다운로드 시뮬레이션)
-          # 출처: The Linux Kernel Archives
-          echo "Fetching Linux Kernel Info..."
-          curl -I https://www.kernel.org/doc/html/latest/ >> output_data/manuals/kernel_doc_header.txt || true
+          # Bash Reference 매뉴얼
+          echo "2️⃣ Downloading Bash Reference Manual..."
+          wget --show-progress -O output_data/manuals/bash_ref.pdf https://www.gnu.org/software/bash/manual/bash.pdf || true
+          echo "   👉 File Saved: $(ls -sh output_data/manuals/bash_ref.pdf)"
+          echo ""
 
-          echo "✅ Download Complete. Check 'output_data/manuals' folder."
-          ls -l output_data/manuals/
+          # Linux Kernel Text (텍스트 내용은 화면에 일부 출력)
+          echo "3️⃣ Fetching Linux Kernel Docs (HTML Header)..."
+          curl -I https://www.kernel.org/doc/html/latest/ > output_data/manuals/kernel_header.txt || true
+          echo "   👉 Content Preview (First 5 lines):"
+          echo "-------------------------------------"
+          cat output_data/manuals/kernel_header.txt | head -n 5
+          echo "-------------------------------------"
 
-      # --- [업로드 기능: 결과물 저장소 반영] ---
-      - name: 4. Upload to Repository (No Token Required)
+      - name: 4. Network & Connectivity Check
         run: |
-          echo "=== 🚀 Pushing Data to koreatest12/studys ==="
+          echo "=========================================="
+          echo "       🌐 NETWORK DIAGNOSTICS             "
+          echo "=========================================="
           
-          # Git 가상 유저 설정
-          git config --global user.name "Manual-Bot"
+          echo "ping google.com ..."
+          # 핑 결과를 화면에 보여주고 로그에도 저장
+          ping -c 3 google.com | tee output_data/logs/network.log || echo "⚠️ Ping Blocked by Firewall (Expected)"
+          
+          echo ""
+          echo "Checking Public IP..."
+          curl -s ifconfig.me | tee -a output_data/logs/network.log
+          echo ""
+
+      - name: 5. Git Push Visualization
+        run: |
+          echo "=========================================="
+          echo "       🚀 UPLOADING TO REPOSITORY         "
+          echo "=========================================="
+          
+          git config --global user.name "Visual-Log-Bot"
           git config --global user.email "bot@noreply.github.com"
           
-          # 다운로드한 매뉴얼과 로그 파일 추가
+          echo "::: Git Status (Before Add) :::"
+          git status
+          
           git add output_data/
           
-          # 커밋 (변경사항 없으면 에러 방지)
-          git commit -m "Auto-Update: Linux Manuals & Logs [$(date)]" || echo "⚠️ No changes to commit"
+          echo "::: Git Commit :::"
+          git commit -m "Auto-Update: Visual Logs & Manuals [$(date)]" || echo "⚠️ No changes to commit"
           
-          # 푸시 (permissions: contents: write 덕분에 토큰 없이 가능)
+          echo "::: Git Push :::"
           git push
-          echo "🎉 Successfully uploaded manuals and logs!"
+          
+          echo ""
+          echo "✅ ALL TASKS COMPLETED SUCCESSFULLY."
+          echo "📂 Check 'output_data' folder in your repo!"
