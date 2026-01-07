@@ -1,7 +1,7 @@
-name: Linux & Maven DevOps Massive System V7
+name: Enterprise File Server & Massive Cloud V8
 
 on:
-  # ⏰ 10분마다 실행
+  # ⏰ 10분마다 서버 동기화 및 데이터 생성
   schedule:
     - cron: '*/10 * * * *'
   push:
@@ -19,270 +19,253 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  maven-devops-job:
+  enterprise-server-job:
     runs-on: ubuntu-latest
     steps:
-      # 1. 저장소 가져오기
+      # 1. 저장소 체크아웃
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 동기화 및 디스크 확보
-      - name: Sync & Optimize
+      # 2. 서버 초기화 및 디스크 최적화
+      - name: Initialize Server Environment
         run: |
-          git config --global user.name "DevOps-Bot"
-          git config --global user.email "bot@noreply.github.com"
+          echo "=== 🚀 Booting Enterprise File Server ==="
+          git config --global user.name "System-Admin-Bot"
+          git config --global user.email "admin@server.local"
+          
+          # 최신 상태 동기화
           git pull --rebase origin main || echo "Sync OK"
           
-          # 용량 확보 (Maven 의존성 캐시 공간 등)
-          sudo rm -rf /usr/share/dotnet /opt/ghc "$AGENT_TOOLSDIRECTORY"
-          docker system prune -af || true
+          # 디스크 공간 확보 (대량 파일 생성을 위해)
+          sudo rm -rf /usr/share/dotnet /opt/ghc
           
-          mkdir -pv output_data/{logs/maven_logs,maven_templates,manuals,database,source_code}
-          echo "✅ Environment Optimized."
+          # 서버 루트 디렉토리 생성 (체계적 구조)
+          ROOT="File_Server_Root"
+          rm -rf "$ROOT" # 기존 데이터 정리 후 재생성 (Clean Build)
+          mkdir -pv "$ROOT"/{System/{Config,Drivers,Kernels},Users/{Admin,Guest,Developers},Database/{SQL,Backups},Logs/{Access,Error,System},Public/Documents}
+          
+          echo "✅ Server Directory Structure Created."
 
-      # 🟢 [핵심 1] Maven 및 필수 도구 설치
-      - name: Install Tools (Include Maven)
+      # 3. 필수 패키지 설치
+      - name: Install System Tools
         run: |
           sudo apt-get update || true
-          # maven: 자바 빌드 도구 추가
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3 zip maven
-          
-          echo "=== Maven Version ==="
-          mvn -version
+          sudo apt-get install -y pandoc texlive-xetex fonts-nanum sqlite3 zip tree
 
-      # 🟢 [핵심 2] Maven 설정 파일 및 매뉴얼 데이터 생성기
-      - name: Create Maven Data Processor
+      # 🟢 [핵심 1] 대량 파일 생성 엔진 (Massive Generator)
+      - name: Run Massive File Generator
         run: |
-          cat <<'EOF' > maven_processor.py
-          import os, datetime, sqlite3
+          cat <<'EOF' > file_generator.py
+          import os, random, datetime, uuid
 
-          timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+          root_dir = "File_Server_Root"
           
-          # [1] settings.xml 템플릿 생성 (GitHub Packages 인증용)
-          def generate_maven_settings():
-              settings_content = """<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
-            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-            xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
-                                http://maven.apache.org/xsd/settings-1.0.0.xsd">
+          # [1] 설정 파일 생성 (Config)
+          print(">> Generating System Configs...")
+          configs = ['nginx.conf', 'httpd.conf', 'sysctl.conf', 'fstab', 'hosts']
+          for cfg in configs:
+              with open(f"{root_dir}/System/Config/{cfg}", "w") as f:
+                  f.write(f"# System Config Generated at {datetime.datetime.now()}\nserver_name localhost;\nlisten 80;\n")
 
-            <activeProfiles>
-              <activeProfile>github</activeProfile>
-            </activeProfiles>
+          # [2] 로그 파일 대량 생성 (Logs)
+          print(">> Generating Massive Logs...")
+          for i in range(1, 101): # 100개 로그
+              with open(f"{root_dir}/Logs/Access/access_log_{i:03d}.log", "w") as f:
+                  f.write(f"192.168.1.{random.randint(1,255)} - - [{datetime.datetime.now()}] 'GET /index.html' 200\n" * 50)
 
-            <profiles>
-              <profile>
-                <id>github</id>
-                <repositories>
-                  <repository>
-                    <id>central</id>
-                    <url>https://repo.maven.apache.org/maven2</url>
-                  </repository>
-                  <repository>
-                    <id>github</id>
-                    <url>https://maven.pkg.github.com/OWNER/REPOSITORY</url>
-                    <snapshots>
-                      <enabled>true</enabled>
-                    </snapshots>
-                  </repository>
-                </repositories>
-              </profile>
-            </profiles>
+          # [3] 데이터베이스 덤프 (DB)
+          print(">> Generating SQL Dumps...")
+          for i in range(1, 21): # 20개 DB
+              with open(f"{root_dir}/Database/Backups/db_backup_{datetime.date.today()}_{i}.sql", "w") as f:
+                  f.write(f"-- MySQL Dump {i}\nCREATE TABLE users_{i} (id INT, name VARCHAR(50));\nINSERT INTO users_{i} VALUES (1, 'Admin');\n")
 
-            <servers>
-              <server>
-                <id>github</id>
-                <username>YOUR_GITHUB_USERNAME</username>
-                <password>YOUR_PERSONAL_ACCESS_TOKEN</password>
-              </server>
-            </servers>
-          </settings>"""
-              
-              with open("output_data/maven_templates/settings_template.xml", "w") as f:
-                  f.write(settings_content)
+          # [4] 사용자 문서 (Users - Random Files)
+          print(">> Generating User Documents...")
+          exts = ['txt', 'md', 'json', 'xml', 'py', 'java', 'c']
+          for user in ['Admin', 'Developers']:
+              for i in range(50):
+                  ext = random.choice(exts)
+                  fname = f"project_file_{uuid.uuid4().hex[:8]}.{ext}"
+                  with open(f"{root_dir}/Users/{user}/{fname}", "w") as f:
+                      f.write(f"// Content of {fname}\n// Created by {user}\n")
 
-          # [2] pom.xml 템플릿 생성 (배포 설정 포함)
-          def generate_pom_template():
-              pom_content = """<project xmlns="http://maven.apache.org/POM/4.0.0"
-            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-            xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-            <modelVersion>4.0.0</modelVersion>
+          # [5] 시스템 커널 시뮬레이션
+          with open(f"{root_dir}/System/Kernels/vmlinuz-5.15.0-generic", "w") as f: f.write("BINARY_DATA_SIMULATION")
 
-            <groupId>com.example</groupId>
-            <artifactId>github-packages-test</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
-
-            <distributionManagement>
-               <repository>
-                 <id>github</id>
-                 <name>GitHub OWNER Apache Maven Packages</name>
-                 <url>https://maven.pkg.github.com/OWNER/REPOSITORY</url>
-               </repository>
-            </distributionManagement>
-          </project>"""
-              
-              with open("output_data/maven_templates/pom_deploy_template.xml", "w") as f:
-                  f.write(pom_content)
-
-          # [3] 통합 매뉴얼 (Markdown) 생성 - Maven 가이드 포함
-          def generate_manual():
-              md_path = "output_data/manuals/DevOps_Master_Guide.md"
-              with open(md_path, "w") as f:
-                  f.write(f"""---
-          title: "DevOps Master Manual (Linux & Maven)"
-          author: "Auto-Generated System"
-          date: "{datetime.datetime.now().strftime('%Y-%m-%d')}"
-          geometry: margin=1in
-          mainfont: "NanumGothic"
-          ---
-
-          # Chapter 1: Linux Basics
-          | Cmd | Desc |
-          |:---|:---|
-          | `ls -al` | List files details |
-          | `df -h` | Check disk space |
-
-          # Chapter 2: Database (SQLite)
-          This system auto-generates massive SQLite DBs every 10 mins.
-
-          # Chapter 3: GitHub Packages (Maven)
-          ## Authentication
-          GitHub Packages supports only **Personal Access Token (Classic)**.
-          Edit `~/.m2/settings.xml` to include your credentials.
-
-          ## Publishing (`mvn deploy`)
-          1. Edit `pom.xml` to add `<distributionManagement>`.
-          2. Ensure `<repository>` ID matches the server ID in `settings.xml`.
-          3. Run `mvn deploy`.
-
-          ## Installing (`mvn install`)
-          Add the dependency to your `pom.xml`:
-          ```xml
-          <dependency>
-            <groupId>com.example</groupId>
-            <artifactId>test</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
-          </dependency>
-          ```
-
-          > **Note:** Artifact names must use lowercase, numbers, and hyphens.
-          """)
-
-          # [4] 웹 대시보드 업데이트
-          def update_web():
-              file_list = []
-              for root, dirs, files in os.walk("output_data"):
-                  for file in files:
-                      path = os.path.join(root, file).replace(os.sep, '/')
-                      stat = os.stat(os.path.join(root, file))
-                      size_kb = stat.st_size / 1024
-                      file_list.append({'name': file, 'path': path, 'time': stat.st_mtime, 'size': size_kb})
-              
-              file_list.sort(key=lambda x: x['time'], reverse=True)
-              
-              html = f"""
-              <!DOCTYPE html>
-              <html>
-              <head>
-                  <meta charset='utf-8'>
-                  <title>DevOps & Maven Center</title>
-                  <style>
-                      body {{ background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 20px; }}
-                      .container {{ max-width: 1200px; margin: 0 auto; }}
-                      h1 {{ border-bottom: 2px solid #f78166; color: #f78166; }}
-                      table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                      th {{ background: #161b22; padding: 10px; text-align: left; color: #79c0ff; }}
-                      td {{ padding: 10px; border-bottom: 1px solid #30363d; }}
-                      a {{ color: #58a6ff; text-decoration: none; }}
-                      .badge {{ padding: 3px 6px; border-radius: 4px; font-size: 0.8em; color: black; }}
-                      .xml {{ background: #f0883e; }} 
-                      .pdf {{ background: #ff7b72; }}
-                      .db {{ background: #238636; color: white; }}
-                  </style>
-              </head>
-              <body>
-                  <div class='container'>
-                      <h1>📦 Maven & Linux DevOps Center</h1>
-                      <p>Automated Templates, Manuals, and Database Logs</p>
-                      <table><tr><th>Time</th><th>Type</th><th>File</th><th>Download</th></tr>
-              """
-              for f in file_list:
-                  ext = f['name'].split('.')[-1]
-                  badge = "badge"
-                  if ext == 'xml': badge += " xml"
-                  elif ext == 'pdf': badge += " pdf"
-                  elif ext == 'db': badge += " db"
-                  
-                  html += f"<tr><td>{datetime.datetime.fromtimestamp(f['time'])}</td><td><span class='{badge}'>{ext.upper()}</span></td><td>{f['name']}</td><td><a href='{f['path']}' download>Download</a></td></tr>"
-              html += "</table></div></body></html>"
-              
-              with open("index.html", "w", encoding="utf-8") as f: f.write(html)
-
-          if __name__ == "__main__":
-              generate_maven_settings()
-              generate_pom_template()
-              generate_manual()
-              update_web()
+          print("✅ Massive Files Generated Successfully.")
           EOF
+          
+          python3 file_generator.py
 
-      # 3. 데이터 프로세서 실행 (템플릿 생성)
-      - name: Run Data Processor
-        run: python3 maven_processor.py
-
-      # 🟢 [핵심 3] Maven 빌드 시뮬레이션 (유효성 검증)
-      - name: Simulate Maven Build
+      # 🟢 [핵심 2] 전문가급 웹 대시보드 생성 (Web OS UI)
+      - name: Build Enterprise Dashboard
         run: |
-          echo "=== 🧪 Simulating Maven Build Process ==="
-          
-          # 임시 프로젝트 생성
-          mvn archetype:generate -DgroupId=com.korea.test \
-            -DartifactId=maven-simulation \
-            -DarchetypeArtifactId=maven-archetype-quickstart \
-            -DinteractiveMode=false
-          
-          cd maven-simulation
-          
-          # 빌드 실행 및 로그 저장
-          mvn package > ../output_data/logs/maven_logs/build_$(date +%Y%m%d_%H%M%S).log 2>&1 || true
-          
-          echo "✅ Maven Build Simulation Complete."
+          cat <<'EOF' > build_dashboard.py
+          import os, datetime
 
-      # 4. PDF 변환 (Maven 가이드 포함)
-      - name: Convert Manual to PDF
-        run: |
-          pandoc "output_data/manuals/DevOps_Master_Guide.md" \
-            -o "output_data/manuals/DevOps_Master_Guide.pdf" \
-            --pdf-engine=xelatex -V mainfont="NanumGothic" || true
+          root_dir = "File_Server_Root"
+          total_files = 0
+          total_size = 0
+          file_rows = ""
 
-      # 5. Git LFS 및 저장소 업데이트
-      - name: Commit & Push
+          # 파일 탐색 및 HTML 행 생성
+          for root, dirs, files in os.walk(root_dir):
+              for file in files:
+                  total_files += 1
+                  path = os.path.join(root, file)
+                  size = os.path.getsize(path)
+                  total_size += size
+                  
+                  # 웹 경로 변환
+                  web_path = path.replace(os.sep, '/')
+                  parent_dir = os.path.basename(root)
+                  
+                  # 아이콘 결정
+                  ext = file.split('.')[-1]
+                  icon = "📄"
+                  badge_color = "#6c757d"
+                  if ext in ['conf', 'xml', 'json']: icon, badge_color = "⚙️", "#ff9800" # Config
+                  elif ext in ['log']: icon, badge_color = "📝", "#4caf50" # Log
+                  elif ext in ['sql']: icon, badge_color = "🗄️", "#2196f3" # DB
+                  elif ext in ['py', 'java', 'c']: icon, badge_color = "💻", "#9c27b0" # Code
+                  elif 'vmlinuz' in file: icon, badge_color = "🐧", "#E91E63" # Kernel
+
+                  file_rows += f"""
+                  <tr class="file-row">
+                      <td><span class="icon">{icon}</span> {file}</td>
+                      <td><span class="badge" style="background:{badge_color}">{parent_dir}</span></td>
+                      <td>{size} B</td>
+                      <td>{datetime.datetime.now().strftime('%H:%M:%S')}</td>
+                      <td><a href="{web_path}" download class="btn-download">⬇️ Load</a></td>
+                  </tr>
+                  """
+
+          # HTML 템플릿 (Glassmorphism Dark Theme)
+          html = f"""
+          <!DOCTYPE html>
+          <html lang="ko">
+          <head>
+              <meta charset="UTF-8">
+              <title>Enterprise Cloud Server</title>
+              <style>
+                  :root {{ --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --accent: #38bdf8; }}
+                  body {{ font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }}
+                  .container {{ max-width: 1400px; margin: 0 auto; }}
+                  
+                  /* Header & Stats */
+                  header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 20px; background: var(--card); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }}
+                  h1 {{ margin: 0; background: linear-gradient(45deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+                  .stats {{ display: flex; gap: 20px; }}
+                  .stat-box {{ text-align: center; }}
+                  .stat-val {{ font-size: 1.5em; font-weight: bold; color: var(--accent); }}
+                  
+                  /* Search */
+                  .search-bar {{ width: 100%; padding: 15px; background: var(--card); border: 1px solid #334155; color: white; border-radius: 8px; margin-bottom: 20px; font-size: 1.1em; }}
+                  
+                  /* File Table */
+                  .table-container {{ background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }}
+                  table {{ width: 100%; border-collapse: collapse; }}
+                  th {{ background: #334155; padding: 15px; text-align: left; color: #94a3b8; font-weight: 600; }}
+                  td {{ padding: 12px 15px; border-bottom: 1px solid #334155; }}
+                  tr:hover {{ background: #334155; }}
+                  
+                  /* Components */
+                  .badge {{ padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; color: white; }}
+                  .btn-download {{ padding: 6px 12px; background: var(--accent); color: #0f172a; text-decoration: none; border-radius: 6px; font-weight: bold; transition: 0.2s; }}
+                  .btn-download:hover {{ opacity: 0.8; }}
+                  .icon {{ margin-right: 8px; }}
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <header>
+                      <div>
+                          <h1>☁️ Enterprise Cloud Server V8</h1>
+                          <small>Managed by GitHub Actions • Branch: main</small>
+                      </div>
+                      <div class="stats">
+                          <div class="stat-box"><div class="stat-val">{total_files}</div><div>Files</div></div>
+                          <div class="stat-box"><div class="stat-val">{total_size / 1024:.1f} KB</div><div>Size</div></div>
+                          <div class="stat-box"><div class="stat-val">Online</div><div>Status</div></div>
+                      </div>
+                  </header>
+
+                  <input type="text" id="search" class="search-bar" placeholder="🔍 Search files, config, logs..." onkeyup="filterFiles()">
+
+                  <div class="table-container">
+                      <table id="fileTable">
+                          <thead><tr><th>File Name</th><th>Directory</th><th>Size</th><th>Time</th><th>Action</th></tr></thead>
+                          <tbody>
+                              {file_rows}
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <script>
+                  function filterFiles() {{
+                      const input = document.getElementById('search');
+                      const filter = input.value.toUpperCase();
+                      const table = document.getElementById('fileTable');
+                      const tr = table.getElementsByTagName('tr');
+                      for (let i = 0; i < tr.length; i++) {{
+                          const td = tr[i].getElementsByTagName('td')[0];
+                          if (td) {{
+                              const txt = td.textContent || td.innerText;
+                              tr[i].style.display = txt.toUpperCase().indexOf(filter) > -1 ? "" : "none";
+                          }}
+                      }}
+                  }}
+              </script>
+          </body>
+          </html>
+          """
+
+          with open("index.html", "w", encoding="utf-8") as f: f.write(html)
+          print("✅ Enterprise Dashboard Generated.")
+          EOF
+          
+          python3 build_dashboard.py
+
+      # 4. 저장소 업로드 (koreatest12/studys 동기화)
+      - name: Deploy to Repository (Push)
         run: |
+          echo "=== 🚀 Uploading to GitHub Repository ==="
+          
+          # LFS 설정 (대용량 파일 대비)
           git lfs install
-          git lfs track "*.db" "*.zip" "*.pdf"
+          git lfs track "*.sql" "*.log"
           
           git add .
-          git commit -m "DevOps: Maven Templates & Manuals Updated [$(date)]" || echo "No changes"
+          
+          # 커밋 메시지 생성
+          MSG="Server Sync: $(find File_Server_Root -type f | wc -l) files active [$(date)]"
+          
+          git commit -m "$MSG" || echo "No changes to commit"
+          
+          # 충돌 방지 및 푸시
           git pull --rebase origin main || echo "Rebase Handled"
           git push origin main || echo "Push Handled"
 
-      # 6. 릴리즈 패키지 생성
+      # 5. 배포 패키지 생성 (릴리즈용)
+      - name: Create System Package
+        run: |
+          zip -r "Enterprise_Server_Backup.zip" File_Server_Root/ index.html
+
+      # 6. GitHub 릴리즈 생성
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          ZIP_NAME="DevOps_Package_${TIMESTAMP}.zip"
-          zip -r "$ZIP_NAME" output_data/ index.html
-          
           TAG="v$(date +%Y.%m.%d-%H%M)"
-          
-          gh release create "$TAG" "$ZIP_NAME" \
-            --title "DevOps & Maven Release $TAG" \
-            --notes "Includes Maven settings.xml, pom.xml templates, and Guides." \
+          gh release create "$TAG" "Enterprise_Server_Backup.zip" \
+            --title "Server Backup $TAG" \
+            --notes "Auto-generated server backup with massive logs and configs." \
             --target main || echo "Release skipped"
 
-      # 7. 배포 (Pages)
+      # 7. GitHub Pages 배포 (홈페이지 반영)
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
@@ -298,7 +281,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: maven-devops-job
+    needs: enterprise-server-job
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
