@@ -1,0 +1,407 @@
+
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>passwd(1) - Linux manual page</title>
+    <link rel="stylesheet" type="text/css" href="../../../style.css" title="style" />
+    <link rel="stylesheet" type="text/css" href="../style.css" title="style" />
+</head>
+
+<body>
+
+<div class="page-top"><a id="top_of_page"></a></div>
+<!--%%%TOP_BAR%%%-->
+    <div class="nav-bar">
+        <table class="nav-table">
+            <tr>
+                <td class="nav-cell">
+                    <p class="nav-text">
+                        <a href="../../../index.html">man7.org</a> &gt; Linux &gt; <a href="../index.html">man-pages</a>
+                    </p>
+                </td>
+                <td class="training-cell">
+                    <p class="training-text"><a class="training-link" href="http://man7.org/training/">Linux/UNIX system programming training</a></p>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+<hr class="nav-end" />
+
+<!--%%%PAGE_START%%%-->
+<h1>passwd(1) &mdash; Linux manual page</h1>
+
+
+<table class="sec-table">
+<tr>
+    <td>
+        <p class="section-dir">
+<a href="#NAME">NAME</a> | <a href="#SYNOPSIS">SYNOPSIS</a> | <a href="#DESCRIPTION">DESCRIPTION</a> | <a href="#OPTIONS">OPTIONS</a> | <a href="#CAVEATS">CAVEATS</a> | <a href="#FILES">FILES</a> | <a href="#EXIT_VALUES">EXIT&nbsp;VALUES</a> | <a href="#SEE_ALSO">SEE&nbsp;ALSO</a> | <a href="#COLOPHON">COLOPHON</a>
+        </p>
+    </td>
+</tr>
+<tr>
+    <td class="search-box">
+        <div class="man-search-box">
+
+            <form method="get" action="https://www.google.com/search">
+                <fieldset class="man-search">
+                    <input type="text" name="q" size="10" maxlength="255" value="" />
+                    <input type="hidden" name="sitesearch" value="man7.org/linux/man-pages" />
+                    <input type="submit" name="sa" value="Search online pages" />
+                </fieldset>
+            </form>
+
+        </div>
+    </td>
+    <td> </td>
+</tr>
+</table>
+
+<!--%%%TEXT_START%%%-->
+<pre>
+<span class="headline"><i>PASSWD</i>(1)                     User Commands                     <i>PASSWD</i>(1)</span>
+</pre>
+<h2><a id="NAME" href="#NAME"></a>NAME  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+       passwd - change user password
+</pre>
+<h2><a id="SYNOPSIS" href="#SYNOPSIS"></a>SYNOPSIS  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+
+       <b>passwd </b>[<i>options</i>] [<i>LOGIN</i>]
+</pre>
+<h2><a id="DESCRIPTION" href="#DESCRIPTION"></a>DESCRIPTION  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+       The <b>passwd </b>command changes passwords for user accounts. A regular
+       user can only change the password for their own account, while the
+       superuser can change the password for any account. The <b>passwd </b>also
+       changes the account or associated password validity period.
+
+   <b>Password Changes</b>
+       If the account has a non-empty password, the user is first
+       prompted to enter their current password. The entered password is
+       encrypted and compared to the stored value. The user has only one
+       attempt to enter the correct password. The superuser can bypass
+       this step to allow changing forgotten passwords.
+
+       After the password has been entered, password aging information is
+       checked to determine if the user is permitted to change the
+       password at this time. If not, <b>passwd </b>refuses to change the
+       password and exits.
+
+       The user is then prompted twice for a replacement password. The
+       second entry is compared against the first and both are required
+       to match for the password to be changed.
+
+       Then, the password is tested for complexity.  <b>passwd </b>rejects
+       passwords that do not meet the complexity requirements. Do not
+       include the system default erase or kill characters.
+
+   <b>Hints for user passwords</b>
+       The security of a password depends on the strength of the
+       encryption algorithm and the size of the key space. The legacy
+       <i>UNIX</i> System encryption method is based on the NBS DES algorithm.
+       More recent methods are now recommended (see <b>ENCRYPT_METHOD</b>). The
+       size of the key space depends on the randomness of the selected
+       password.
+
+       Compromises in password security normally result from careless
+       password selection or handling. For this reason, you should not
+       select a password which appears in a dictionary or one that must
+       be written down. The password should also not be a proper name,
+       your license number, birth date, or street address. Any of these
+       may be used as guesses to violate system security.
+
+       As a general guideline, passwords should be long and random. It's
+       fine to use simple character sets, such as passwords consisting
+       only of lowercase letters, if that helps memorizing longer
+       passwords. For a password consisting only of lowercase English
+       letters randomly chosen, and a length of 32, there are 26^32
+       (approximately 2^150) different possible combinations. Being an
+       exponential equation, it's apparent that the exponent (the length)
+       is more important than the base (the size of the character set).
+
+       You can find advice on how to choose a strong password on
+       <a href="https://en.wikipedia.org/wiki/Password_strength">https://en.wikipedia.org/wiki/Password_strength</a>
+</pre>
+<h2><a id="OPTIONS" href="#OPTIONS"></a>OPTIONS  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+       The options which apply to the <b>passwd </b>command are:
+
+       <b>-a</b>, <b>--all</b>
+           This option can be used only with <b>-S </b>and causes show status
+           for all users.
+
+       <b>-d</b>, <b>--delete</b>
+           Deletes a user's password, making it empty. This command sets
+           the account to be passwordless.
+
+       <b>-e</b>, <b>--expire</b>
+           Immediately expire an account's password. This in effect can
+           force a user to change their password at the user's next
+           login.
+
+       <b>-h</b>, <b>--help</b>
+           Display help message and exit.
+
+       <b>-i</b>, <b>--inactive </b><i>INACTIVE</i>
+           This option is used to disable an account after the password
+           has been expired for a number of days. After a user account
+           has had an expired password for <i>INACTIVE</i> days, the user may no
+           longer sign on to the account.
+
+       <b>-k</b>, <b>--keep-tokens</b>
+           Indicate password change should be performed only for expired
+           authentication tokens (passwords). The user wishes to keep
+           their non-expired tokens as before.
+
+       <b>-l</b>, <b>--lock</b>
+           Lock the password of the named account. This option disables a
+           password by changing it to a value which matches no possible
+           encrypted value (it adds a ´!´ at the beginning of the
+           password).
+
+           Note that this does not disable the account. The user may
+           still be able to login using another authentication token
+           (e.g. an SSH key). To disable the account, administrators
+           should use <b>usermod --expiredate 1 </b>(this sets the account's
+           expire date to 1970-01-02).
+
+           Users with a locked password are not allowed to change their
+           password.
+
+       <b>-n</b>, <b>--mindays </b><i>MIN_DAYS</i>
+           Set the minimum number of days between password changes to
+           <i>MIN_DAYS</i>. A value of zero for this field indicates that the
+           user may change their password at any time.
+
+       <b>-q</b>, <b>--quiet</b>
+           Quiet mode.
+
+       <b>-r</b>, <b>--repository </b><i>REPOSITORY</i>
+           change password in <i>REPOSITORY</i> repository
+
+       <b>-R</b>, <b>--root </b><i>CHROOT_DIR</i>
+           Apply changes in the <i>CHROOT_DIR</i> directory and use the
+           configuration files from the <i>CHROOT_DIR</i> directory. Only
+           absolute paths are supported.
+
+       <b>-P</b>, <b>--prefix </b><i>PREFIX_DIR</i>
+           Apply changes to configuration files under the root filesystem
+           found under the directory <i>PREFIX_DIR</i>. This option does not
+           chroot and is intended for preparing a cross-compilation
+           target. Some limitations: NIS and LDAP users/groups are not
+           verified. No PAM support. No SELINUX support.
+
+       <b>-S</b>, <b>--status</b>
+           Display account status information. The status information
+           consists of 7 fields. The first field is the user's login
+           name. The second field indicates if the user account has a
+           locked password (L), has no password (NP), or has a usable
+           password (P). The third field gives the date of the last
+           password change. The next four fields are the minimum age,
+           maximum age, warning period, and inactivity period for the
+           password. These ages are expressed in days.
+
+       <b>-u</b>, <b>--unlock</b>
+           Unlock the password of the named account. This option
+           re-enables a password by changing the password back to its
+           previous value (to the value before using the <b>-l </b>option).
+
+       <b>-w</b>, <b>--warndays </b><i>WARN_DAYS</i>
+           Set the number of days of warning before a password change is
+           required. The <i>WARN_DAYS</i> option is the number of days prior to
+           password expiration during which the user is warned that their
+           password is about to expire.
+
+       <b>-x</b>, <b>--maxdays </b><i>MAX_DAYS</i>
+           Set the maximum number of days a password remains valid. After
+           <i>MAX_DAYS</i>, the password is required to be changed.
+
+           Passing the number <i>-1</i> as <i>MAX_DAYS</i> will remove checking a
+           password's validity.
+
+       <b>-s</b>, <b>--stdin</b>
+           This option is used to indicate that passwd should read the
+           new password from standard input, which can be a pipe.
+</pre>
+<h2><a id="CAVEATS" href="#CAVEATS"></a>CAVEATS  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+       Password complexity checking may vary from site to site. The user
+       is urged to select a password as complex as he or she feels
+       comfortable with.
+
+       Users may not be able to change their password on a system if NIS
+       is enabled and they are not logged into the NIS server.
+
+       <b>passwd </b>uses PAM to authenticate users and to change their
+       passwords.
+</pre>
+<h2><a id="FILES" href="#FILES"></a>FILES  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+       /etc/passwd
+           User account information.
+
+       /etc/shadow
+           Secure user account information.
+
+       /etc/pam.d/passwd
+           PAM configuration for <b>passwd</b>.
+</pre>
+<h2><a id="EXIT_VALUES" href="#EXIT_VALUES"></a>EXIT VALUES  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+       The <b>passwd </b>command exits with the following values:
+
+       <i>0</i>
+           success
+
+       <i>1</i>
+           permission denied
+
+       <i>2</i>
+           invalid combination of options
+
+       <i>3</i>
+           unexpected failure, nothing done
+
+       <i>4</i>
+           unexpected failure, passwd file missing
+
+       <i>5</i>
+           passwd file busy, try again
+
+       <i>6</i>
+           invalid argument to option
+
+       <i>10</i>
+           an error was returned by pam(3)
+</pre>
+<h2><a id="SEE_ALSO" href="#SEE_ALSO"></a>SEE ALSO  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+       <a href="../man8/chpasswd.8.html">chpasswd(8)</a>, <b>makepasswd</b>(1), <a href="../man5/passwd.5.html">passwd(5)</a>, <a href="../man5/shadow.5.html">shadow(5)</a>, <a href="../man8/usermod.8.html">usermod(8)</a>.
+
+       The following web page comically (yet correctly) compares the
+       strength of two different methods for choosing a password:
+       "https://xkcd.com/936/"
+</pre>
+<h2><a id="COLOPHON" href="#COLOPHON"></a>COLOPHON  &nbsp; &nbsp; &nbsp; &nbsp; <a href="#top_of_page"><span class="top-link">top</span></a></h2><pre>
+       This page is part of the <i>shadow-utils</i> (utilities for managing
+       accounts and shadow password files) project.  Information about
+       the project can be found at 
+       ⟨<a href="https://github.com/shadow-maint/shadow">https://github.com/shadow-maint/shadow</a>⟩.  If you have a bug report
+       for this manual page, send it to
+       pkg-shadow-devel@alioth-lists.debian.net.  This page was obtained
+       from the project's upstream Git repository
+       ⟨<a href="https://github.com/shadow-maint/shadow">https://github.com/shadow-maint/shadow</a>⟩ on 2025-08-11.  (At that
+       time, the date of the most recent commit that was found in the
+       repository was 2025-08-10.)  If you discover any rendering
+       problems in this HTML version of the page, or you believe there is
+       a better or more up-to-date source for the page, or you have
+       corrections or improvements to the information in this COLOPHON
+       (which is <i>not</i> part of the original manual page), send a mail to
+       man-pages@man7.org
+
+<span class="footline">shadow-utils 4.18.0             08/11/2025                      <i>PASSWD</i>(1)</span>
+</pre>
+
+<hr class="end-man-text" />
+<p>Pages that refer to this page:
+    <a href="../man1/ldappasswd.1.html">ldappasswd(1)</a>,&nbsp;
+    <a href="../man1/login.1.html">login(1)</a>,&nbsp;
+    <a href="../man1/login.1@@shadow-utils.html">login(1@@shadow-utils)</a>,&nbsp;
+    <a href="../man3/crypt.3.html">crypt(3)</a>,&nbsp;
+    <a href="../man4/pts.4.html">pts(4)</a>,&nbsp;
+    <a href="../man5/login.defs.5.html">login.defs(5)</a>,&nbsp;
+    <a href="../man5/passwd.5.html">passwd(5)</a>,&nbsp;
+    <a href="../man5/passwd.5@@shadow-utils.html">passwd(5@@shadow-utils)</a>,&nbsp;
+    <a href="../man5/shadow.5.html">shadow(5)</a>,&nbsp;
+    <a href="../man8/chpasswd.8.html">chpasswd(8)</a>,&nbsp;
+    <a href="../man8/groupadd.8.html">groupadd(8)</a>,&nbsp;
+    <a href="../man8/groupdel.8.html">groupdel(8)</a>,&nbsp;
+    <a href="../man8/groupmems.8.html">groupmems(8)</a>,&nbsp;
+    <a href="../man8/groupmod.8.html">groupmod(8)</a>,&nbsp;
+    <a href="../man8/newusers.8.html">newusers(8)</a>,&nbsp;
+    <a href="../man8/useradd.8.html">useradd(8)</a>,&nbsp;
+    <a href="../man8/userdel.8.html">userdel(8)</a>,&nbsp;
+    <a href="../man8/usermod.8.html">usermod(8)</a>
+</p>
+<hr/>
+
+ 
+<hr class="start-footer" />
+
+<div class="footer">
+
+<table class="colophon-table">
+    <tr>
+    <td class="pub-info">
+        <p>
+            HTML rendering created 2025-09-06
+            by <a href="https://man7.org/mtk/index.html">Michael Kerrisk</a>,
+            author of
+            <a href="https://man7.org/tlpi/"><em>The Linux Programming Interface</em></a>.
+        </p>
+        <p>
+            For details of in-depth
+            <strong>Linux/UNIX system programming training courses</strong>
+            that I teach, look <a href="https://man7.org/training/">here</a>.
+        </p>
+        <p>
+            Hosting by <a href="https://www.jambit.com/index_en.html">jambit GmbH</a>.
+        </p>
+    </td>
+    <td class="colophon-divider">
+    </td>
+    <td class="tlpi-cover">
+        <a href="https://man7.org/tlpi/"><img src="https://man7.org/tlpi/cover/TLPI-front-cover-vsmall.png" alt="Cover of TLPI" /></a>
+    </td>
+    </tr>
+</table>
+
+</div>
+
+<hr class="end-footer" />
+
+
+
+<!--BEGIN-SITETRACKING-->
+<!-- SITETRACKING.man7.org_linux_man-pages -->
+
+<!-- Default Statcounter code for man7.org/linux/man-pages
+http://www.man7.org/linux/man-pages -->
+<script type="text/javascript">
+var sc_project=7422636;
+var sc_invisible=1;
+var sc_security="9b6714ff";
+</script>
+<script type="text/javascript"
+src="https://www.statcounter.com/counter/counter.js"
+async></script>
+<noscript><div class="statcounter"><a title="Web Analytics
+Made Easy - StatCounter" href="https://statcounter.com/"
+target="_blank"><img class="statcounter"
+src="https://c.statcounter.com/7422636/0/9b6714ff/1/"
+alt="Web Analytics Made Easy -
+StatCounter"></a></div></noscript>
+<!-- End of Statcounter Code -->
+
+
+
+<!-- Start of Google Analytics Code -->
+
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-9830363-8']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+
+<!-- End of Google Analytics Code -->
+
+<!--END-SITETRACKING-->
+
+</body>
+</html>

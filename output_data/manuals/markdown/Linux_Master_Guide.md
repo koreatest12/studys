@@ -16,14 +16,20 @@ mainfont: "NanumGothic"
 | **rm** | Remove (Caution!) | `rm -rf /path/to/destroy` |
 | **chmod** | Change Mode (Perms) | `chmod 755 run.sh` |
 
-## 2. Process Management (Zombie Lab)
+## 2. User & Password Management
+| Command | Description | Usage Example |
+| :--- | :--- | :--- |
+| **passwd** | Change user password | `passwd username` (Interactive) |
+| **chpasswd** | Batch update passwords | `echo "user:pass" \| chpasswd` |
+| **useradd** | Create new user | `useradd -m -s /bin/bash user1` |
+
+## 3. Process Management (Zombie Lab)
 This section covers process states including Zombies (Defunct).
 
 ### Zombie Process C Code
 ```c
 #include <stdlib.h>
 #include <unistd.h>
-// This code creates a zombie by exiting child while parent sleeps
 int main() {
     if (fork() > 0) {
         sleep(10); // Parent ignores child -> Zombie created
@@ -34,14 +40,5 @@ int main() {
 }
 ```
 
-## 3. Network & Server Ops
-| Command | Description | Example |
-| :--- | :--- | :--- |
-| **netstat** | Network statistics | `netstat -tulpn` |
-| **curl** | Data transfer | `curl -O http://site.com/file` |
-| **ssh** | Remote Login | `ssh user@192.168.1.1` |
 
-> **Note:** Always check firewall status with `ufw status` before opening ports.
-
-
-_Generated at: Wed Jan  7 12:37:43 UTC 2026_
+_Generated at: Wed Jan  7 12:42:44 UTC 2026_
