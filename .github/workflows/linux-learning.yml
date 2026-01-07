@@ -1,7 +1,7 @@
-name: Linux Manual PDF Server & Auto-Fix
+name: Linux Manual PDF Server (Fix:XeLaTeX)
 
 on:
-  # ⏰ 10분마다 자동 실행 (PDF 서버 가동)
+  # ⏰ 10분마다 자동 실행
   schedule:
     - cron: '*/10 * * * *'
   push:
@@ -19,17 +19,25 @@ jobs:
       - name: 0. Repository Checkout
         uses: actions/checkout@v4
 
-      - name: 1. Install PDF Server Engine & Fonts
+      # 🟢 [수정됨] texlive-xetex 패키지 추가로 'xelatex not found' 해결
+      - name: 1. Install PDF Server Engine (XeTeX)
         run: |
-          echo "=========================================="
-          echo "    🛠️ INSTALLING PDF RENDER SERVER       "
-          echo "=========================================="
-          
+          echo "=== 🛠️ INSTALLING PDF SERVER & UTILS ==="
           sudo apt-get update
-          # Pandoc(변환기) 및 TexLive(PDF엔진), 한글 폰트 설치
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended fonts-nanum xzdec
           
-          echo "✅ PDF Server Engine Installed."
+          # texlive-xetex : xelatex 엔진 포함 (필수)
+          # fonts-nanum : 한글 폰트 (필수)
+          # pandoc : 문서 변환기 (필수)
+          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum xzdec whois
+          
+          echo "::: Verifying XeLaTeX Installation :::"
+          if command -v xelatex >/dev/null; then
+            echo "✅ XeLaTeX is successfully installed."
+            xelatex --version | head -n 1
+          else
+            echo "❌ XeLaTeX NOT found! Install failed."
+            exit 1
+          fi
 
       - name: 2. Initialize Workspace
         run: |
@@ -38,15 +46,13 @@ jobs:
           mkdir -pv output_data/logs
           mkdir -pv output_data/source
 
-      # 🟢 [핵심] 렌더링 오류 수정을 위한 'Heredoc' 방식 적용
-      # 특수문자 충돌을 방지하기 위해 'EOF'를 사용하여 안전하게 작성
       - name: 3. Generate Error-Free Markdown Manual
         run: |
           echo "::: Generating Clean Markdown Manual :::"
           
           MD_FILE="output_data/manuals/markdown/Linux_Master_Guide.md"
           
-          # 아래 'EOF' 구간 안의 내용은 YAML 문법의 영향을 받지 않고 그대로 파일로 저장됩니다.
+          # Heredoc을 사용하여 렌더링 오류 방지
           cat <<'EOF' > $MD_FILE
           ---
           title: "Linux Master Comprehensive Manual"
@@ -66,14 +72,20 @@ jobs:
           | **rm** | Remove (Caution!) | `rm -rf /path/to/destroy` |
           | **chmod** | Change Mode (Perms) | `chmod 755 run.sh` |
 
-          ## 2. Process Management (Zombie Lab)
+          ## 2. User & Password Management
+          | Command | Description | Usage Example |
+          | :--- | :--- | :--- |
+          | **passwd** | Change user password | `passwd username` (Interactive) |
+          | **chpasswd** | Batch update passwords | `echo "user:pass" \| chpasswd` |
+          | **useradd** | Create new user | `useradd -m -s /bin/bash user1` |
+
+          ## 3. Process Management (Zombie Lab)
           This section covers process states including Zombies (Defunct).
 
           ### Zombie Process C Code
           ```c
           #include <stdlib.h>
           #include <unistd.h>
-          // This code creates a zombie by exiting child while parent sleeps
           int main() {
               if (fork() > 0) {
                   sleep(10); // Parent ignores child -> Zombie created
@@ -83,27 +95,28 @@ jobs:
               return 0;
           }
           ```
-          
-          ## 3. Network & Server Ops
-          | Command | Description | Example |
-          | :--- | :--- | :--- |
-          | **netstat** | Network statistics | `netstat -tulpn` |
-          | **curl** | Data transfer | `curl -O http://site.com/file` |
-          | **ssh** | Remote Login | `ssh user@192.168.1.1` |
-          
-          > **Note:** Always check firewall status with `ufw status` before opening ports.
           EOF
           
-          # 날짜 정보 추가 (동적 데이터는 별도 append)
           echo -e "\n\n_Generated at: $(date)_" >> $MD_FILE
-          
-          echo "✅ Markdown Generated without Errors."
+          echo "✅ Markdown Generated."
 
-      - name: 4. Run Zombie Process & Log (Live Server)
+      - name: 4. Simulate User Creation & Password Change
+        run: |
+          echo "=== 🔑 User & Password Simulation ==="
+          echo "Creating 'test_lab_user'..."
+          sudo useradd -m test_lab_user || echo "User exists"
+          
+          echo "Changing password for 'test_lab_user'..."
+          echo "test_lab_user:SecretPass123!" | sudo chpasswd
+          
+          echo "Verifying Password Hash Change..."
+          sudo grep "test_lab_user" /etc/shadow | cut -d: -f1,2 | head -c 20 > output_data/logs/passwd_audit.log
+          echo "..." >> output_data/logs/passwd_audit.log
+          echo "✅ Password simulation complete."
+
+      - name: 5. Run Zombie Process & Log
         run: |
           echo "=== 🧟 Running Zombie Simulation ==="
-          
-          # C 코드 파일 생성
           cat <<'EOF' > output_data/source/zombie.c
           #include <stdlib.h>
           #include <unistd.h>
@@ -122,55 +135,49 @@ jobs:
             return 0;
           }
           EOF
-          
-          # 컴파일 및 실행
           gcc output_data/source/zombie.c -o output_data/source/zombie_exec
           ./output_data/source/zombie_exec &
-          
           sleep 2
-          
-          echo "=== 📸 Capturing Process Table (Evidence) ==="
-          # 로그 파일에 좀비 프로세스 상태 기록
           ps aux | grep 'Z\|defunct' | grep -v grep > output_data/logs/zombie_evidence.log || echo "No Zombie Found" >> output_data/logs/zombie_evidence.log
           cat output_data/logs/zombie_evidence.log
 
-      - name: 5. PDF Server:Convert & Publish
+      # 🟢 [수정됨] 설치 확인된 XeLaTeX 엔진으로 변환 수행
+      - name: 6. PDF Server:Convert & Publish
         run: |
           echo "=== 🔄 Converting Markdown to PDF ==="
           
           INPUT_MD="output_data/manuals/markdown/Linux_Master_Guide.md"
           OUTPUT_PDF="output_data/manuals/pdf/Linux_Master_Guide.pdf"
           
-          # Pandoc을 사용하여 PDF 변환 (한글 폰트 적용)
-          # xelatex 엔진을 사용하여 유니코드(한글) 호환성 확보
+          # --pdf-engine=xelatex 옵션이 이제 정상 작동합니다.
           pandoc "$INPUT_MD" -o "$OUTPUT_PDF" --pdf-engine=xelatex -V mainfont="NanumGothic" || true
           
           if [ -f "$OUTPUT_PDF" ]; then
             echo "✅ PDF Generation Successful: $OUTPUT_PDF"
             ls -lh "$OUTPUT_PDF"
           else
-            echo "❌ PDF Generation Failed (Check Logs)"
+            echo "❌ PDF Generation Failed. Dumping pandoc log..."
+            pandoc --version
+            exit 1
           fi
 
-      - name: 6. Download Official Manuals
+      - name: 7. Download Official Manuals
         run: |
           echo "=== 📥 Fetching External Docs ==="
           wget -q -O output_data/manuals/gnu_coreutils.pdf https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
+          wget -q -O output_data/manuals/man_passwd.html https://man7.org/linux/man-pages/man1/passwd.1.html || true
 
-      - name: 7. Commit & Push (Source Backup)
+      - name: 8. Commit & Push
         run: |
           git config --global user.name "PDF-Server-Bot"
           git config --global user.email "bot@noreply.github.com"
-          
           git add output_data/
-          git commit -m "Server Update: PDF & Logs Generated [$(date)]" || echo "No changes"
+          git commit -m "Fixed: XeLaTeX Installed & PDF Generated [$(date)]" || echo "No changes"
           git push
 
-      # 🟢 [추가 기능] GitHub Artifact Server (파일 다운로드 제공)
-      # 이 단계가 완료되면 Actions 실행 화면 하단에서 파일을 직접 다운로드할 수 있습니다.
-      - name: 8. Upload Artifacts (Download Server)
+      - name: 9. Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Linux-Manuals-and-Logs
+          name: Linux-Manuals-Logs-Passwd
           path: output_data/
           retention-days: 5
