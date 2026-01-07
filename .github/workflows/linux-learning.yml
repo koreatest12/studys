@@ -1,7 +1,7 @@
-name: Linux System Update & Data Collection Script
+name: Linux Accumulate Data & Concurrent System
 
 on:
-  # ⏰ 10분마다 실행 (데이터 수집 및 업데이트)
+  # ⏰ 10분마다 실행 (데이터 누적)
   schedule:
     - cron: '*/10 * * * *'
   push:
@@ -18,170 +18,243 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  system-update-job:
+  accumulate-job:
     runs-on: ubuntu-latest
     steps:
-      # 1. 초기화 및 브랜치 동기화
-      - name: Checkout & Force Sync
+      # 1. 저장소 가져오기 (전체 히스토리)
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Force Clean Build
+      # 🟢 [핵심 1] 데이터 보존을 위한 동기화 (삭제 명령 제거됨)
+      - name: Sync & Prepare (No Delete)
         run: |
-          git config --global user.name "System-Manager-Bot"
+          git config --global user.name "Accumulate-Bot"
           git config --global user.email "bot@noreply.github.com"
-          git checkout -B main origin/main
-          # 기존 데이터 정리 (새로운 업데이트를 위해)
-          rm -rf output_data index.html
-          echo "✅ Clean Environment Prepared."
+          
+          # 원격 저장소의 최신 데이터(누적된 파일들)를 가져옴
+          git pull --rebase origin main || echo "Already up to date"
+          
+          # 폴더가 없으면 생성 (있으면 그대로 둠)
+          mkdir -pv output_data/logs/concurrent_history
+          mkdir -pv output_data/database/snapshots
+          mkdir -pv output_data/reports
+          echo "✅ Repository Synced. Ready to ACCUMULATE data."
 
-      # 🟢 [핵심 1] 마스터 관리 스크립트 생성 (Shell Script)
-      - name: Create System Manager Script
+      # 2. 필수 도구 설치
+      - name: Install Tools
         run: |
-          cat <<'EOF' > system_manager.sh
+          sudo apt-get update || true
+          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3
+
+      # 🟢 [핵심 2] 동시성 제어 스크립트 생성 (Concurrent Runner)
+      - name: Create Concurrent Runner Script
+        run: |
+          cat <<'EOF' > concurrent_runner.sh
           #!/bin/bash
-          set -e # 에러 발생 시 중단
-
-          echo "========================================"
-          echo "   🚀 SYSTEM UPDATE & COLLECTION START  "
-          echo "========================================"
+          
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          echo "=== 🚀 Starting Concurrent Operations [$TIMESTAMP] ==="
 
-          # [1] 디렉토리 구조 생성
-          mkdir -pv output_data/{database,source_code,manuals,logs,system_reports}
-          mkdir -pv output_data/manuals/{pdf,official_docs}
-          mkdir -pv output_data/source_code/{java,python}
-
-          # [2] 시스템 패키지 업데이트 및 도구 설치
-          echo "::: 🛠️ Updating System Packages :::"
-          sudo apt-get update -y
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3 wget curl
+          # [Task 1] 좀비 프로세스 대량/중복 생성 (Parallel Execution)
+          # 5개의 프로세스를 동시에 백그라운드(&)로 실행
+          echo ">>> Spawning 5 Zombie Creators concurrently..."
           
-          # [3] 시스템 데이터 수집 (Data Collection)
-          echo "::: 📊 Collecting System Metrics :::"
-          REPORT_FILE="output_data/system_reports/report_${TIMESTAMP}.txt"
+          for i in {1..5}; do
+            (
+              sleep $((RANDOM % 3))
+              # 서브쉘에서 프로세스 생성 시늉
+              echo "Process $i running..."
+              gcc -x c -o output_data/logs/zombie_proc_$i - <<C_CODE
+                #include <stdlib.h>
+                #include <unistd.h>
+                int main() { if(fork()>0) sleep(5); else exit(0); return 0; }
+              C_CODE
+              ./output_data/logs/zombie_proc_$i &
+            ) & 
+          done
+
+          # [Task 2] 시스템 리소스 스냅샷 (누적 저장)
+          LOG_FILE="output_data/logs/concurrent_history/sys_load_${TIMESTAMP}.log"
+          echo "Recording System Load to $LOG_FILE"
           
-          echo "--- System Snapshot [$TIMESTAMP] ---" > $REPORT_FILE
-          echo "[Disk Usage]" >> $REPORT_FILE
-          df -h >> $REPORT_FILE
-          echo "" >> $REPORT_FILE
-          echo "[Memory Usage]" >> $REPORT_FILE
-          free -h >> $REPORT_FILE
-          echo "" >> $REPORT_FILE
-          echo "[Top Processes]" >> $REPORT_FILE
-          ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -n 10 >> $REPORT_FILE
+          {
+            echo "--- Snapshot at $TIMESTAMP ---"
+            uptime
+            echo "--- Memory ---"
+            free -h
+            echo "--- Active Processes ---"
+            ps aux | wc -l
+          } > "$LOG_FILE"
 
-          # [4] 외부 자료(매뉴얼) 업데이트
-          echo "::: 📚 Updating Manual Library :::"
-          wget -q -O output_data/manuals/official_docs/gnu_bash.pdf https://www.gnu.org/software/bash/manual/bash.pdf || true
-          wget -q -O output_data/manuals/official_docs/gnu_coreutils.pdf https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
-
-          # [5] Python 데이터 프로세서 실행 (DB & Web)
-          echo "::: 🧠 Running Data Processor :::"
-          python3 data_processor.py
-
-          echo "✅ System Update & Collection Finished."
+          # 백그라운드 작업들이 안정화될 때까지 대기
+          wait
+          echo "✅ Concurrent Tasks Finished."
           EOF
-          
-          chmod +x system_manager.sh
+          chmod +x concurrent_runner.sh
 
-      # 🟢 [핵심 2] 데이터 처리 엔진 생성 (Python Script)
-      - name: Create Data Processor Script
+      # 🟢 [핵심 3] 데이터 누적 처리 파이썬 엔진
+      - name: Create Data Accumulator Script
         run: |
-          cat <<'EOF' > data_processor.py
-          import sqlite3, os, datetime, random
+          cat <<'EOF' > data_accumulator.py
+          import sqlite3, os, datetime, random, shutil
 
-          # [1] 대량 데이터베이스 생성 및 업데이트
-          def generate_massive_db():
-              print(">> Generating Massive Database...")
-              db_path = "output_data/database/enterprise.db"
+          timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+          db_path = "output_data/database/accumulated.db"
+
+          # [1] DB 데이터 누적 (Append Data)
+          def accumulate_db_data():
+              print(f">> Accumulating Data into {db_path}...")
               conn = sqlite3.connect(db_path)
               cur = conn.cursor()
               
-              # DDL (테이블 생성)
-              cur.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, role TEXT, joined_at TIMESTAMP);")
-              cur.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, ip TEXT, action TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);")
+              # 테이블이 없으면 생성, 있으면 유지
+              cur.execute("CREATE TABLE IF NOT EXISTS access_history (id INTEGER PRIMARY KEY, timestamp TEXT, user TEXT, action TEXT);")
               
-              # DML (데이터 대량 삽입)
-              users = [f'user_{i:04d}' for i in range(1, 501)] # 500명
-              for u in users:
-                  cur.execute("INSERT INTO users (name, email, role) VALUES (?, ?, ?)", (u, f"{u}@sys.com", random.choice(['Admin','User','Guest'])))
+              # 데이터 추가 (기존 데이터 삭제 안 함)
+              users = ['User_A', 'User_B', 'User_C', 'Admin', 'Robot']
+              actions = ['UPLOAD', 'DOWNLOAD', 'SYNC', 'ERROR', 'CHECK']
               
-              actions = ['LOGIN', 'LOGOUT', 'UPDATE', 'DELETE', 'VIEW']
-              for _ in range(3000): # 로그 3000건
-                  cur.execute("INSERT INTO logs (ip, action) VALUES (?, ?)", (f"192.168.1.{random.randint(1,255)}", random.choice(actions)))
+              # 한 번 실행할 때마다 500건씩 추가됨 (시간이 지날수록 데이터가 늘어남)
+              for _ in range(500):
+                  cur.execute("INSERT INTO access_history (timestamp, user, action) VALUES (?, ?, ?)", 
+                              (datetime.datetime.now(), random.choice(users), random.choice(actions)))
               
               conn.commit()
               
-              # SQL 덤프 저장
-              with open("output_data/database/full_dump.sql", "w") as f:
+              # 현재 상태 스냅샷 저장 (SQL 파일 누적)
+              dump_file = f"output_data/database/snapshots/dump_{timestamp}.sql"
+              with open(dump_file, "w") as f:
                   for line in conn.iterdump(): f.write(f"{line}\n")
+              
               conn.close()
 
-          # [2] 웹 대시보드(Index.html) 생성
-          def generate_dashboard():
-              print(">> Building Web Dashboard...")
-              html = """
+          # [2] 웹 대시보드 갱신 (누적된 파일 리스트업)
+          def update_dashboard():
+              print(">> Updating Web Dashboard with History...")
+              
+              # 파일 목록 수집 및 최신순 정렬
+              file_list = []
+              for root, dirs, files in os.walk("output_data"):
+                  for file in files:
+                      path = os.path.join(root, file).replace(os.sep, '/')
+                      stat = os.stat(os.path.join(root, file))
+                      mod_time = datetime.datetime.fromtimestamp(stat.st_mtime)
+                      file_list.append({'name': file, 'path': path, 'time': mod_time})
+              
+              # 최신 파일이 위로 오도록 정렬
+              file_list.sort(key=lambda x: x['time'], reverse=True)
+              
+              html = f"""
               <!DOCTYPE html>
-              <html>
+              <html lang='ko'>
               <head>
                   <meta charset='utf-8'>
-                  <title>System Update Center</title>
+                  <title>Accumulated Data Center</title>
                   <style>
-                      body { background: #1a1a1a; color: #ddd; font-family: sans-serif; padding: 20px; }
-                      .container { max-width: 1000px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px; }
-                      h1 { color: #4CAF50; border-bottom: 2px solid #4CAF50; }
-                      table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                      th, td { padding: 10px; border-bottom: 1px solid #444; text-align: left; }
-                      th { background: #333; color: #4CAF50; }
-                      tr:hover { background: #383838; }
-                      a { color: #64b5f6; text-decoration: none; }
-                      .badge { padding: 3px 8px; border-radius: 4px; font-size: 0.8em; }
-                      .sql { background: #ff9800; color: #000; }
-                      .log { background: #2196f3; color: #fff; }
-                      .pdf { background: #f44336; color: #fff; }
+                      body {{ background: #121212; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; padding: 20px; }}
+                      .container {{ max-width: 1200px; margin: 0 auto; }}
+                      h1 {{ border-bottom: 3px solid #03dac6; padding-bottom: 10px; color: #03dac6; }}
+                      .stats {{ background: #1e1e1e; padding: 15px; border-radius: 8px; margin-bottom: 20px; }}
+                      
+                      /* 스크롤 가능한 테이블 영역 */
+                      .table-wrapper {{ 
+                          max-height: 600px; 
+                          overflow-y: auto; 
+                          background: #1e1e1e; 
+                          border-radius: 8px; 
+                          border: 1px solid #333;
+                      }}
+                      
+                      table {{ width: 100%; border-collapse: collapse; }}
+                      th {{ position: sticky; top: 0; background: #333; color: #03dac6; padding: 12px; text-align: left; z-index: 10; }}
+                      td {{ padding: 10px; border-bottom: 1px solid #2c2c2c; }}
+                      tr:hover {{ background: #2c2c2c; }}
+                      a {{ color: #81d4fa; text-decoration: none; }}
+                      
+                      .badge {{ padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; color: black; }}
+                      .sql {{ background: #ffca28; }}
+                      .log {{ background: #a5d6a7; }}
+                      .db {{ background: #ef5350; color: white; }}
                   </style>
               </head>
               <body>
                   <div class='container'>
-                      <h1>🚀 System Update & Data Center</h1>
-                      <p>Last Update: """ + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """ UTC</p>
-                      <table>
-                          <tr><th>Type</th><th>File Name</th><th>Action</th></tr>
+                      <h1>🚀 Concurrent & Accumulated Data Center</h1>
+                      <div class='stats'>
+                          <strong>Total Files:</strong> {len(file_list)} <br>
+                          <strong>Last Update:</strong> {datetime.datetime.now()} <br>
+                          <strong>Status:</strong> Data is growing continuously...
+                      </div>
+                      
+                      <div class='table-wrapper'>
+                          <table>
+                              <thead>
+                                  <tr><th>Time</th><th>Type</th><th>File Name</th><th>Download</th></tr>
+                              </thead>
+                              <tbody>
               """
               
-              for root, dirs, files in os.walk("output_data"):
-                  for file in files:
-                      path = os.path.join(root, file).replace(os.sep, '/')
-                      ext = file.split('.')[-1]
-                      badge = "badge"
-                      if ext == 'sql': badge += " sql"
-                      elif ext == 'log': badge += " log"
-                      elif ext == 'pdf': badge += " pdf"
-                      
-                      html += f"<tr><td><span class='{badge}'>{ext.upper()}</span></td><td>{file}</td><td><a href='{path}' download>Download</a></td></tr>"
+              for f in file_list:
+                  ext = f['name'].split('.')[-1]
+                  badge_class = "badge"
+                  if ext == 'sql': badge_class += " sql"
+                  elif ext == 'log': badge_class += " log"
+                  elif ext == 'db': badge_class += " db"
+                  
+                  html += f"""
+                  <tr>
+                      <td>{f['time'].strftime('%Y-%m-%d %H:%M:%S')}</td>
+                      <td><span class='{badge_class}'>{ext.upper()}</span></td>
+                      <td>{f['name']}</td>
+                      <td><a href='{f['path']}' download>⬇️ Load</a></td>
+                  </tr>
+                  """
+                  
+              html += """
+                              </tbody>
+                          </table>
+                      </div>
+                      <p style='text-align:center; color:#777;'>Powered by GitHub Actions & Python</p>
+                  </div>
+              </body>
+              </html>
+              """
               
-              html += "</table></div></body></html>"
-              with open("index.html", "w", encoding="utf-8") as f: f.write(html)
+              with open("index.html", "w", encoding="utf-8") as f:
+                  f.write(html)
 
           if __name__ == "__main__":
-              generate_massive_db()
-              generate_dashboard()
+              accumulate_db_data()
+              update_dashboard()
           EOF
 
-      # 🟢 [핵심 3] 통합 스크립트 실행 (전체 프로세스 가동)
-      - name: Execute System Manager
-        run: ./system_manager.sh
+      # 4. 실행 (동시 수행 및 누적)
+      - name: Execute Operations
+        run: |
+          echo "::: Running Concurrent Scripts :::"
+          ./concurrent_runner.sh
+          
+          echo "::: Running Data Accumulator :::"
+          python3 data_accumulator.py
 
-      # 4. 저장소 업데이트 (Git Push)
+      # 5. 저장소 업데이트 (누적된 파일 커밋)
       - name: Update Repository
         run: |
           git add .
-          git commit -m "Auto-Script: System Update & Data Collection [$(date)]" || echo "No changes"
+          
+          # 파일 개수 확인 로그
+          FILE_COUNT=$(find output_data -type f | wc -l)
+          echo "Current Total Files: $FILE_COUNT"
+          
+          git commit -m "Accumulate: $FILE_COUNT files stored [$(date)]" || echo "No changes"
+          
+          # Rebase로 충돌 없이 업데이트
+          git pull --rebase origin main || echo "Rebase conflict handled"
           git push origin main || echo "Push skipped"
 
-      # 5. 웹 배포 (GitHub Pages)
+      # 6. 배포 (Pages)
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
@@ -197,7 +270,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: system-update-job
+    needs: accumulate-job
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
