@@ -1,7 +1,7 @@
-name: Linux Fix Syntax & Accumulate System
+name: Linux System Release & Package Launch
 
 on:
-  # ⏰ 10분마다 실행 (데이터 누적)
+  # ⏰ 10분마다 실행 (데이터 누적 + 릴리즈 배포)
   schedule:
     - cron: '*/10 * * * *'
   push:
@@ -12,251 +12,206 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  # 🟢 [필수] 릴리즈 생성을 위한 권한
+  packages: write
 
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  accumulate-job:
+  release-deploy-job:
     runs-on: ubuntu-latest
     steps:
-      # 1. 저장소 가져오기 (전체 히스토리)
+      # 1. 저장소 가져오기
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 데이터 보존을 위한 동기화 (삭제 명령 없음)
+      # 2. 동기화 및 준비
       - name: Sync & Prepare
         run: |
-          git config --global user.name "Accumulate-Bot"
+          git config --global user.name "Release-Bot"
           git config --global user.email "bot@noreply.github.com"
-          
-          # 원격 저장소의 최신 데이터(누적된 파일들)를 가져옴
           git pull --rebase origin main || echo "Already up to date"
           
-          # 폴더가 없으면 생성
           mkdir -pv output_data/logs/concurrent_history
           mkdir -pv output_data/database/snapshots
           mkdir -pv output_data/source_code
-          echo "✅ Repository Synced. Ready to ACCUMULATE data."
+          echo "✅ Environment Ready."
 
       # 3. 필수 도구 설치
       - name: Install Tools
         run: |
           sudo apt-get update || true
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3
+          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk sqlite3 zip
 
-      # 🟢 [수정됨] 에러 원인이었던 'Here-Document' 제거 및 안전한 스크립트 작성
-      - name: Create Concurrent Runner Script
+      # 4. 동시성 실행 스크립트 (Zombie Process)
+      - name: Create Concurrent Runner
         run: |
-          # 1. C 소스 코드 파일 먼저 안전하게 생성 (Here-Doc 중첩 에러 방지)
+          # C 소스 안전 생성
           cat <<'CSOURCE' > output_data/source_code/zombie_maker.c
           #include <stdlib.h>
           #include <unistd.h>
           #include <stdio.h>
           int main() {
-              pid_t pid = fork();
-              if (pid > 0) {
-                  // 부모 프로세스: 자식 종료를 기다리지 않고 10초간 대기 (자식은 좀비화)
-                  sleep(10);
-              } else {
-                  // 자식 프로세스: 즉시 종료
-                  exit(0);
-              }
+              if (fork() > 0) sleep(10);
+              else exit(0);
               return 0;
           }
           CSOURCE
 
-          # 2. 실행 스크립트 생성
+          # 실행 스크립트
           cat <<'EOF' > concurrent_runner.sh
           #!/bin/bash
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          echo "=== 🚀 Starting Concurrent Operations [$TIMESTAMP] ==="
-
-          # [Task 1] 좀비 프로세스 생성기 컴파일
+          echo "=== 🚀 Concurrent Tasks [$TIMESTAMP] ==="
+          
           gcc output_data/source_code/zombie_maker.c -o zombie_exec
-
-          # [Task 2] 동시성 테스트: 5개의 프로세스 병렬 실행
-          echo ">>> Spawning 5 Concurrent Processes..."
+          
+          # 5개 프로세스 동시 실행
           for i in {1..5}; do
-            (
-              echo "[Job $i] Started..."
-              # 각각 다른 이름으로 복사하여 실행 (중복 수행 시뮬레이션)
-              cp zombie_exec zombie_run_$i
-              ./zombie_run_$i &
-              PID=$!
-              echo "[Job $i] PID: $PID running in background"
-            ) &
+            ./zombie_exec &
           done
-
-          # [Task 3] 시스템 부하 및 로그 스냅샷 (누적 저장)
+          
+          # 시스템 스냅샷 로그 누적
           LOG_FILE="output_data/logs/concurrent_history/sys_snapshot_${TIMESTAMP}.log"
-          echo "Recording System Snapshot to $LOG_FILE"
-          
-          # 약간의 딜레이를 주어 프로세스들이 실행된 상태를 포착
-          sleep 2
-          
           {
-            echo "=== System Snapshot at $TIMESTAMP ==="
-            echo "--- Load Average ---"
+            echo "snapshot_time: $TIMESTAMP"
             uptime
-            echo "--- Memory Usage ---"
             free -h
-            echo "--- Zombie Processes Detect ---"
-            ps aux | grep 'Z\|defunct' | grep -v grep
-            echo "--- Total Process Count ---"
-            ps aux | wc -l
+            ps aux | grep 'Z\|defunct'
           } > "$LOG_FILE"
-
-          # 백그라운드 작업들이 안정화될 때까지 대기
-          wait
-          # 임시 실행 파일 정리
-          rm -f zombie_run_* zombie_exec
-          echo "✅ Concurrent Tasks Finished."
-          EOF
           
+          wait
+          rm -f zombie_exec
+          echo "✅ Tasks Done."
+          EOF
           chmod +x concurrent_runner.sh
 
-      # 4. 데이터 누적 처리 파이썬 엔진 (DB 및 웹 대시보드)
-      - name: Create Data Accumulator Script
+      # 5. 데이터 누적 및 대시보드 생성 (Python)
+      - name: Create Data Processor
         run: |
-          cat <<'EOF' > data_accumulator.py
+          cat <<'EOF' > data_processor.py
           import sqlite3, os, datetime, random
 
           timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
           db_path = "output_data/database/accumulated.db"
 
-          # [1] DB 데이터 누적 (Append Data)
-          def accumulate_db_data():
-              print(f">> Accumulating Data into {db_path}...")
+          # [1] DB 누적
+          def accumulate_db():
               conn = sqlite3.connect(db_path)
               cur = conn.cursor()
-              
-              # 테이블 생성 (존재하면 건너뜀)
-              cur.execute("CREATE TABLE IF NOT EXISTS access_history (id INTEGER PRIMARY KEY, timestamp TEXT, user TEXT, action TEXT, ip TEXT);")
-              
-              # 데이터 추가 (기존 데이터 보존 + 500건 추가)
-              users = ['User_A', 'User_B', 'Admin', 'System', 'Guest']
-              actions = ['LOGIN', 'DOWNLOAD', 'UPLOAD', 'SYNC_ERROR', 'CHECK_STATUS']
-              
-              for _ in range(500):
-                  cur.execute("INSERT INTO access_history (timestamp, user, action, ip) VALUES (?, ?, ?, ?)", 
-                              (datetime.datetime.now(), random.choice(users), random.choice(actions), f"192.168.1.{random.randint(1,255)}"))
-              
+              cur.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, ts TEXT, msg TEXT);")
+              for i in range(100):
+                  cur.execute("INSERT INTO history (ts, msg) VALUES (?, ?)", (timestamp, f"Data Entry {i}"))
               conn.commit()
               
-              # 현재 상태 스냅샷 저장 (SQL 파일 누적)
-              dump_file = f"output_data/database/snapshots/db_dump_{timestamp}.sql"
-              with open(dump_file, "w") as f:
+              # SQL 덤프 저장
+              with open(f"output_data/database/snapshots/dump_{timestamp}.sql", "w") as f:
                   for line in conn.iterdump(): f.write(f"{line}\n")
-              
               conn.close()
 
-          # [2] 웹 대시보드 갱신 (누적된 파일 리스트업)
-          def update_dashboard():
-              print(">> Updating Web Dashboard with History...")
-              
+          # [2] 웹 대시보드 (index.html)
+          def update_web():
               file_list = []
               for root, dirs, files in os.walk("output_data"):
                   for file in files:
                       path = os.path.join(root, file).replace(os.sep, '/')
                       stat = os.stat(os.path.join(root, file))
-                      mod_time = datetime.datetime.fromtimestamp(stat.st_mtime)
-                      file_list.append({'name': file, 'path': path, 'time': mod_time})
+                      file_list.append({'name': file, 'path': path, 'time': stat.st_mtime})
               
-              # 최신순 정렬
               file_list.sort(key=lambda x: x['time'], reverse=True)
               
               html = f"""
               <!DOCTYPE html>
-              <html lang='ko'>
+              <html>
               <head>
                   <meta charset='utf-8'>
-                  <title>Accumulated Data Center</title>
+                  <title>System Releases</title>
                   <style>
-                      body {{ background: #121212; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; padding: 20px; }}
-                      .container {{ max-width: 1200px; margin: 0 auto; }}
-                      h1 {{ border-bottom: 3px solid #03dac6; padding-bottom: 10px; color: #03dac6; }}
-                      .stats {{ background: #1e1e1e; padding: 15px; border-radius: 8px; margin-bottom: 20px; }}
-                      .table-wrapper {{ max-height: 800px; overflow-y: auto; background: #1e1e1e; border-radius: 8px; border: 1px solid #333; }}
-                      table {{ width: 100%; border-collapse: collapse; }}
-                      th {{ position: sticky; top: 0; background: #333; color: #03dac6; padding: 12px; text-align: left; z-index: 10; }}
-                      td {{ padding: 10px; border-bottom: 1px solid #2c2c2c; }}
-                      tr:hover {{ background: #2c2c2c; }}
-                      a {{ color: #81d4fa; text-decoration: none; }}
-                      .badge {{ padding: 4px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; color: black; }}
-                      .sql {{ background: #ffca28; }}
-                      .log {{ background: #a5d6a7; }}
-                      .db {{ background: #ef5350; color: white; }}
-                      .c {{ background: #90caf9; color: black; }}
+                      body {{ background: #111; color: #eee; font-family: sans-serif; padding: 20px; }}
+                      .container {{ max-width: 1000px; margin: 0 auto; }}
+                      table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                      th, td {{ padding: 10px; border-bottom: 1px solid #333; text-align: left; }}
+                      th {{ background: #222; color: #4CAF50; }}
+                      a {{ color: #2196F3; text-decoration: none; }}
                   </style>
               </head>
               <body>
                   <div class='container'>
-                      <h1>🚀 Concurrent & Accumulated Data Center</h1>
-                      <div class='stats'>
-                          <strong>Total Files:</strong> {len(file_list)} <br>
-                          <strong>Last Update:</strong> {datetime.datetime.now()} <br>
-                          <strong>Status:</strong> Active & Accumulating
-                      </div>
-                      <div class='table-wrapper'>
-                          <table>
-                              <thead><tr><th>Time</th><th>Type</th><th>File Name</th><th>Download</th></tr></thead>
-                              <tbody>
+                      <h1>📦 System Release & File Center</h1>
+                      <p>Latest Check: {datetime.datetime.now()}</p>
+                      <table><tr><th>File</th><th>Download</th></tr>
               """
-              
               for f in file_list:
-                  ext = f['name'].split('.')[-1]
-                  badge_class = "badge"
-                  if ext == 'sql': badge_class += " sql"
-                  elif ext == 'log': badge_class += " log"
-                  elif ext == 'db': badge_class += " db"
-                  elif ext == 'c': badge_class += " c"
-                  
-                  html += f"""
-                  <tr>
-                      <td>{f['time'].strftime('%Y-%m-%d %H:%M:%S')}</td>
-                      <td><span class='{badge_class}'>{ext.upper()}</span></td>
-                      <td>{f['name']}</td>
-                      <td><a href='{f['path']}' download>⬇️ Load</a></td>
-                  </tr>
-                  """
-                  
-              html += "</tbody></table></div></div></body></html>"
+                  html += f"<tr><td>{f['name']}</td><td><a href='{f['path']}' download>Download</a></td></tr>"
+              html += "</table></div></body></html>"
               
-              with open("index.html", "w", encoding="utf-8") as f:
-                  f.write(html)
+              with open("index.html", "w", encoding="utf-8") as f: f.write(html)
 
           if __name__ == "__main__":
-              accumulate_db_data()
-              update_dashboard()
+              accumulate_db()
+              update_web()
           EOF
 
-      # 5. 실행 (동시 수행 및 누적)
-      - name: Execute Operations
+      # 6. 실행
+      - name: Execute System Logic
         run: |
-          echo "::: Running Concurrent Scripts :::"
           ./concurrent_runner.sh
-          
-          echo "::: Running Data Accumulator :::"
-          python3 data_accumulator.py
+          python3 data_processor.py
 
-      # 6. 저장소 업데이트 (Rebase로 충돌 방지하며 커밋)
-      - name: Update Repository
+      # 7. 저장소 커밋 & 푸시
+      - name: Commit & Push
         run: |
           git add .
-          
-          FILE_COUNT=$(find output_data -type f | wc -l)
-          echo "Current Total Files: $FILE_COUNT"
-          
-          git commit -m "Accumulate: $FILE_COUNT files stored [$(date)]" || echo "No changes"
-          
-          git pull --rebase origin main || echo "Rebase conflict handled"
-          git push origin main || echo "Push skipped"
+          git commit -m "System Update: Data Accumulated [$(date)]" || echo "No changes"
+          git pull --rebase origin main || echo "Rebase Handled"
+          git push origin main || echo "Push Handled"
 
-      # 7. 배포 (Pages)
+      # 🟢 [핵심 기능 1] 배포 패키지 생성 (ZIP 압축)
+      - name: Create Distribution Package
+        run: |
+          echo "=== 📦 Packaging Artifacts ==="
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          PACKAGE_NAME="Linux_System_Package_${TIMESTAMP}.zip"
+          
+          # output_data 폴더 전체를 압축
+          zip -r "$PACKAGE_NAME" output_data/ index.html
+          
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
+          echo "✅ Package Created: $PACKAGE_NAME"
+
+      # 🟢 [핵심 기능 2] GitHub 릴리즈 자동 생성 및 패키지 업로드
+      - name: Create Release & Upload Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== 🚀 Launching GitHub Release ==="
+          
+          # 버전 태그 생성 (시간 기반)
+          TAG_NAME="v$(date +%Y.%m.%d-%H%M)"
+          RELEASE_TITLE="System Release $TAG_NAME"
+          
+          # 릴리즈 노트 작성
+          NOTES="## 🚀 Automated System Release
+          - **Build Time**: $(date)
+          - **Package**: ${{ env.PACKAGE_NAME }}
+          - **Status**: Database updated, Logs accumulated.
+          
+          > This release was automatically generated by GitHub Actions."
+          
+          # gh CLI를 사용하여 릴리즈 생성 및 파일 첨부
+          gh release create "$TAG_NAME" \
+            "${{ env.PACKAGE_NAME }}" \
+            --title "$RELEASE_TITLE" \
+            --notes "$NOTES" \
+            --target main
+            
+          echo "✅ Release Published: $TAG_NAME"
+
+      # 8. 배포 (Pages)
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
@@ -272,7 +227,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: accumulate-job
+    needs: release-deploy-job
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
