@@ -1,228 +1,191 @@
-# Linux Automation System with Jekyll & GitHub Pages Deployment (Conflict Fixed)
-name: Linux System & Jekyll Pages Deploy
+name: Linux Dynamic File System & Web Share
 
 on:
-  # ⏰ 10분마다 자동 실행
+  # ⏰ 10분마다 자동 갱신
   schedule:
     - cron: '*/10 * * * *'
-  # 소스 푸시 시 실행
   push:
     branches: ["main"]
-  # 수동 실행 버튼
   workflow_dispatch:
 
-# 🔐 권한 설정
 permissions:
   contents: write
   pages: write
   id-token: write
 
-# 🚀 동시성 제어 (중복 실행 방지)
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  # 1. 빌드 및 생성 작업
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      # 1. 저장소 가져오기 및 브랜치 동기화
+      - name: Checkout & Sync
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 전체 히스토리 가져오기
+          fetch-depth: 0
 
-      # 🟢 [핵심 수정 1] 브랜치 강제 동기화 (Detached HEAD 방지)
-      - name: Sync Branch & Clean Workspace
+      - name: Force Sync with Main
         run: |
-          echo "=== 🔄 Syncing with Remote 'main' ==="
-          git config --global user.name "System-Bot"
+          git config --global user.name "File-System-Bot"
           git config --global user.email "bot@noreply.github.com"
-          
-          # 현재 HEAD를 main 브랜치로 강제 전환
           git checkout -B main origin/main
-          
-          # 최신 내용 당겨오기 (충돌 방지)
-          git pull origin main --ff-only || echo "Already up to date"
-          
-          # 기존 충돌 가능성 있는 바이너리/로그 파일 미리 삭제 (Clean Build)
+          # 기존 충돌 유발 파일 제거 (새로 생성하기 위해)
           rm -rf output_data/source/zombie_exec
-          rm -rf output_data/logs/*.log
-          echo "✅ Branch Synced & Workspace Cleaned."
+          rm -f index.html
 
-      # --- [Part 1: 리눅스 시스템 환경 구축] ---
-      - name: Install Dependencies
+      # 2. 리눅스 환경 구축 (PDF 엔진)
+      - name: Install Tools
         run: |
-          sudo apt-get update || sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex \
-            fonts-nanum fonts-noto-cjk xzdec whois
+          sudo apt-get update || true
+          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-xetex fonts-nanum fonts-noto-cjk xzdec
           
-          if command -v xelatex >/dev/null; then echo "✅ XeLaTeX Installed."; else echo "❌ Setup Failed."; exit 1; fi
+      - name: Init Directories
+        run: mkdir -pv output_data/{manuals/pdf,manuals/markdown,logs,source}
 
-      - name: Initialize Directories
+      # 3. 리눅스 실습 데이터 생성 (PDF, 로그 등)
+      - name: Generate Content
         run: |
-          mkdir -pv output_data/manuals/pdf
-          mkdir -pv output_data/manuals/markdown
-          mkdir -pv output_data/logs
-          mkdir -pv output_data/source
-
-      # --- [Part 2: 매뉴얼 및 시뮬레이션 수행] ---
-      - name: Generate Content & Simulations
-        run: |
-          echo "=== 🐧 Generating Content ==="
+          # Markdown & PDF 생성
+          MD="output_data/manuals/markdown/Linux_Guide.md"
+          echo "# Linux System Manual" > $MD
+          echo "Generated at $(date)" >> $MD
+          echo "## Files" >> $MD
+          ls -R output_data >> $MD
           
-          # 1. Markdown 매뉴얼 작성
-          MD_FILE="output_data/manuals/markdown/Linux_Master_Guide.md"
-          cat <<'EOF' > $MD_FILE
-          ---
-          title: "Linux System Manual"
-          author: "Automated System"
-          date: "2026-01-07"
-          geometry: margin=1in
-          mainfont: "NanumGothic"
-          ---
-          # [Linux] System & Security Guide
+          pandoc "$MD" -o "output_data/manuals/pdf/Linux_Guide.pdf" --pdf-engine=xelatex -V mainfont="NanumGothic" || true
+          wget -q -O output_data/manuals/gnu_coreutils.pdf https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
           
-          ## 1. Essential Commands
-          | Command | Description | Example |
-          |:---|:---|:---|
-          | **ls** | List Files | `ls -al` |
-          | **chmod** | Permissions | `chmod 755 file` |
-          
-          ## 2. Security Ops
-          | Command | Description | Example |
-          |:---|:---|:---|
-          | **passwd** | Change PW | `passwd user` |
-          | **chpasswd** | Batch PW | `echo "u:p" \| chpasswd` |
-          
-          ## 3. Process Code (Zombie)
-          ```c
-          #include <stdlib.h>
-          #include <unistd.h>
-          int main() {
-             if(fork()>0) sleep(10); 
-             else exit(0);
-             return 0;
-          }
-          ```
-          EOF
-          echo -e "\n\n_Generated: $(date)_" >> $MD_FILE
-
-          # 2. PDF 변환
-          pandoc "$MD_FILE" -o "output_data/manuals/pdf/Linux_Master_Guide.pdf" \
-            --pdf-engine=xelatex -V mainfont="NanumGothic" || true
-
-          # 3. 외부 문서 다운로드
-          wget -q -t 2 -O output_data/manuals/gnu_coreutils.pdf https://www.gnu.org/software/coreutils/manual/coreutils.pdf || true
-
-          # 4. 좀비 프로세스 시뮬레이션 (소스 생성 -> 컴파일 -> 실행)
+          # 좀비 프로세스 & 로그 생성
           gcc -x c -o output_data/source/zombie_exec - <<'EOF'
           #include <stdlib.h>
           #include <unistd.h>
           int main() { if(fork()>0) sleep(5); else exit(0); return 0; }
           EOF
-          
-          # 실행 및 캡처
           ./output_data/source/zombie_exec &
-          sleep 2
-          ps aux | grep 'Z\|defunct' | grep -v grep > output_data/logs/zombie_status.log || echo "Clean" >> output_data/logs/zombie_status.log
+          sleep 1
+          ps aux | grep 'Z\|defunct' > output_data/logs/zombie.log
+          
+          # 암호 감사 로그
+          echo "root:x:0:0:..." > output_data/logs/passwd_sample.log
 
-          # 5. 암호 변경 시뮬레이션
-          sudo useradd -m jekyll_user || true
-          echo "jekyll_user:StrongPass!" | sudo chpasswd
-          sudo grep "jekyll_user" /etc/shadow | head -c 20 > output_data/logs/passwd_audit.log
-
-      # --- [Part 3: 웹 대시보드(Homepage) 생성] ---
-      - name: Build Web Dashboard (index.html)
+      # 🟢 [핵심 기능] 파이썬으로 모든 파일을 스캔하여 홈페이지(index.html) 자동 생성
+      - name: Generate Dynamic File Index (Python)
         run: |
-          # Jekyll Front Matter 추가 (레이아웃 적용)
-          cat <<EOF > index.html
-          ---
-          layout: default
-          title: Linux File System
-          ---
+          cat <<'EOF' > build_index.py
+          import os
+          import datetime
+
+          root_dir = "."
+          output_dir = "output_data"
+          html_content = """
           <!DOCTYPE html>
           <html lang="ko">
           <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Linux System Dashboard</title>
+              <title>Linux File Share System</title>
               <style>
-                  body { font-family: sans-serif; background: #f4f4f9; padding: 20px; color: #333; }
-                  .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; }
-                  h1 { border-bottom: 2px solid #4CAF50; padding-bottom: 10px; color: #2c3e50; }
-                  .section { margin-top: 20px; }
-                  .btn { display: inline-block; padding: 10px 15px; margin: 5px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }
-                  .btn.pdf { background: #dc3545; }
-                  .btn.log { background: #ffc107; color: black; }
-                  .timestamp { color: #888; font-size: 0.9em; text-align: right; }
+                  body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; padding: 20px; }
+                  .container { max-width: 1000px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 20px; }
+                  h1 { border-bottom: 2px solid #007bff; padding-bottom: 10px; color: #007bff; }
+                  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                  th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+                  th { background-color: #f8f9fa; }
+                  tr:hover { background-color: #f1f1f1; }
+                  a { text-decoration: none; color: #333; font-weight: 500; display: block; }
+                  a:hover { color: #007bff; }
+                  .icon { margin-right: 10px; }
+                  .dir { color: #ffc107; }
+                  .file { color: #6c757d; }
+                  .footer { margin-top: 30px; text-align: center; color: #888; font-size: 0.9em; }
               </style>
           </head>
           <body>
               <div class="container">
-                  <h1>🐧 Linux System File Share</h1>
-                  <p class="timestamp">Last Updated: $(date)</p>
-
-                  <div class="section">
-                      <h2>📚 PDF Manuals</h2>
-                      <a href="output_data/manuals/pdf/Linux_Master_Guide.pdf" class="btn pdf">⬇️ Generated Manual (PDF)</a>
-                      <a href="output_data/manuals/gnu_coreutils.pdf" class="btn pdf">⬇️ GNU Official Docs (PDF)</a>
-                  </div>
-
-                  <div class="section">
-                      <h2>🔍 System Logs</h2>
-                      <a href="output_data/logs/zombie_status.log" class="btn log">🧟 Zombie Process Log</a>
-                      <a href="output_data/logs/passwd_audit.log" class="btn log">🔑 Password Audit Log</a>
-                  </div>
+                  <h1>📂 Linux File Share System</h1>
+                  <p>All files in the repository are automatically indexed below.</p>
                   
-                  <div class="section">
-                      <h2>💻 C Source Code</h2>
-                      <a href="output_data/source/zombie_exec" class="btn">💾 Zombie Binary</a>
-                  </div>
+                  <table>
+                      <thead>
+                          <tr>
+                              <th>Type</th>
+                              <th>File Name / Path</th>
+                              <th>Action</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+          """
+
+          # output_data 폴더를 순회하며 파일 목록 생성
+          for root, dirs, files in os.walk(output_dir):
+              for file in files:
+                  full_path = os.path.join(root, file)
+                  # 윈도우 스타일 경로(\)를 웹 표준(/)으로 변환
+                  web_path = full_path.replace(os.sep, '/')
                   
-                  <p style="margin-top:40px; text-align:center; color:#999;">Powered by GitHub Actions & Jekyll</p>
+                  # 아이콘 및 유형 결정
+                  icon = "📄"
+                  if file.endswith('.pdf'): icon = "📕"
+                  elif file.endswith('.log'): icon = "📝"
+                  elif file.endswith('.c'): icon = "💻"
+                  elif file.endswith('.exe') or '.' not in file: icon = "⚙️"
+                  
+                  html_content += f"""
+                  <tr>
+                      <td><span class="icon">{icon}</span></td>
+                      <td><a href="{web_path}" target="_blank">{web_path}</a></td>
+                      <td><a href="{web_path}" download>⬇️ Download</a></td>
+                  </tr>
+                  """
+
+          html_content += f"""
+                      </tbody>
+                  </table>
+                  <div class="footer">
+                      Last Scanned: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")} <br>
+                      Powered by GitHub Actions & Python Indexer
+                  </div>
               </div>
           </body>
           </html>
+          """
+
+          with open("index.html", "w", encoding="utf-8") as f:
+              f.write(html_content)
+          
+          print("✅ index.html generated with dynamic file list.")
           EOF
+          
+          # 파이썬 스크립트 실행
+          python3 build_index.py
 
-      # --- [Part 4: Git 저장소 동기화 (충돌 해결 로직 적용)] ---
-      # 🟢 [핵심 수정 2] Rebase 제거 -> 단순 커밋 & 푸시 (Overwrite 전략)
-      - name: Commit & Push (Force Update)
+      # 4. Git 저장소 업데이트 (강제 푸시로 충돌 회피)
+      - name: Update Repository
         run: |
-          echo "=== 🚀 Committing Changes ==="
-          
-          # 1. 모든 변경사항 스테이징
-          git add output_data/ index.html
-          
-          # 2. 커밋 (변경사항 없으면 패스)
-          git commit -m "Auto-Update: System Files & Dashboard [$(date)]" || echo "⚠️ No changes to commit"
-          
-          # 3. 푸시 (이미 Pull을 맨 처음에 했으므로 충돌 확률 매우 낮음)
-          # 만약 충돌나면, 다음 주기(10분 뒤)에 해결되도록 놔두거나 강제 푸시 고려
-          git push origin main || echo "⚠️ Push failed (Repo updated externally? Will retry next run)"
+          git add .
+          git commit -m "Auto-Index: Update Files & Web [$(date)]" || echo "No changes"
+          git push origin main || echo "Push skipped"
 
-      # --- [Part 5: Jekyll Build & Artifact Upload] ---
+      # 5. GitHub Pages 배포 (Jekyll)
       - name: Setup Pages
         uses: actions/configure-pages@v5
-
-      - name: Build with Jekyll
+      - name: Build Pages
         uses: actions/jekyll-build-pages@v1
         with:
           source: ./
           destination: ./_site
-
-      - name: Upload artifact
+      - name: Upload Artifact
         uses: actions/upload-pages-artifact@v3
 
-  # 2. 배포 작업
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-and-deploy
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
