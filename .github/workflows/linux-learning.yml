@@ -1,162 +1,83 @@
-name: Linux All-In-One Mastery Lab (Error Safe)
+name: Linux Mastery Lab & Auto-Save
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
+# 🟢 [중요] 토큰 없이 저장소에 파일을 쓰기 위한 권한 설정
+permissions:
+  contents: write
+
 jobs:
-  linux-comprehensive-lab:
+  linux-lab-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 0. Init & Safety Setup
+      - name: 0. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 1. Init & Safety Setup
         run: |
-          # set +e : 스크립트 도중 에러가 나도 멈추지 않도록 쉘 설정 변경
           set +e 
-          echo "✅ Error Ignore Mode Activated (set +e)"
+          echo "✅ Error Ignore Mode Activated"
 
-      # 1단계: 파일 시스템 탐색 및 조작 (기초)
-      - name: 1. File System Basics (Navigation & Creation)
+      # --- [리눅스 실습: 파일 시스템] ---
+      - name: 2. File System Operations
         run: |
-          echo "=== 📍 Path & List ==="
-          pwd || true
-          ls -al || true
-          
-          echo "=== 📂 Directory Structure ==="
-          # -p: 상위 경로 포함 생성, -v: 상세 출력
-          mkdir -pv data/logs/archive || true
-          mkdir -pv data/config || true
-          mkdir -pv data/backup || true
+          echo "=== 📂 Creating Directories ==="
+          # 결과물을 저장할 output 폴더 생성
+          mkdir -pv output_data/logs || true
+          mkdir -pv output_data/config || true
 
-          echo "=== 📝 File Creation (Touch & Redirection) ==="
-          touch data/config/settings.conf || true
-          # > : 덮어쓰기, >> : 이어쓰기
-          echo "server_port=8080" > data/config/settings.conf || true
-          echo "debug_mode=true" >> data/config/settings.conf || true
+          echo "=== 📝 Creating Result Files ==="
+          # 실습 결과 파일 생성
+          echo "Linux Lab Started: $(date)" > output_data/summary.txt
+          echo "System Check: OK" >> output_data/summary.txt
           
-          # 더미 로그 대량 생성
-          for i in {1..5}; do echo "Log entry $i: Process started" >> data/logs/app.log; done || true
-          echo "CRITICAL: Database Connection Failed" >> data/logs/app.log || true
+          # 더미 로그 생성
+          for i in {1..5}; do echo "Log $i: Processed" >> output_data/logs/app.log; done || true
 
-      # 2단계: 파일 관리 및 아카이빙 (중급)
-      - name: 2. File Management (Copy, Move, Archive)
+      # --- [리눅스 실습: 시스템 정보] ---
+      - name: 3. System Info Collection
         run: |
-          echo "=== 📦 Copy & Move (cp, mv) ==="
-          cp -rv data/logs data/backup/ || true
-          mv -v data/backup/logs data/backup/logs_old || true
+          echo "=== 💾 System Stats ==="
+          # 시스템 정보를 파일로 저장
+          echo "[Disk Info]" >> output_data/summary.txt
+          df -h >> output_data/summary.txt || true
           
-          echo "=== 🗜️ Archiving (tar, zip) ==="
-          # tar -czvf: Create, Gzip, Verbose, File
-          tar -czvf data_backup.tar.gz data/ || true
-          # 압축 해제 테스트 (-C: 경로 지정)
-          tar -xzvf data_backup.tar.gz -C /tmp/ || true
+          echo "[Memory Info]" >> output_data/summary.txt
+          free -h >> output_data/summary.txt || true
+          
+          echo "[CPU Info]" >> output_data/summary.txt
+          lscpu | head -n 10 >> output_data/summary.txt || true
 
-          echo "=== 🗑️ Deletion Safety Check ==="
-          # rm 없는 파일 지우기 시도 (에러 무시 테스트)
-          rm non_existent_file.txt || true  
-          echo "✅ 'rm' error ignored successfully."
-
-      # 3단계: 권한 및 사용자 관리 (보안)
-      - name: 3. Permissions & User Info (Security)
+      # --- [리눅스 실습: 네트워크 & 에러 처리] ---
+      - name: 4. Network & Advanced Ops
         run: |
-          echo "=== 👤 User Identity ==="
-          whoami || true
-          id || true
+          echo "=== 🌐 Network Check ==="
+          # 에러가 나도 파일에 기록하고 넘어감
+          ping -c 3 8.8.8.8 >> output_data/logs/network.log 2>&1 || echo "Ping blocked but continued" >> output_data/logs/network.log
           
-          echo "=== 🔐 Permission Modification (chmod) ==="
-          # 스크립트 생성 및 실행 권한 부여
-          echo "echo 'Hello Linux'" > hello.sh
-          ls -l hello.sh || true
-          chmod 755 hello.sh || true
-          ls -l hello.sh || true
-          ./hello.sh || true
-          
-          echo "===  ownership (chown - simulation) ==="
-          # root 권한이 필요한 명령은 sudo 사용 (비번 없이 설정된 경우)
-          sudo chown root:root hello.sh || true
+          echo "=== 🔍 Text Processing ==="
+          # 로그 라인 수 카운트 저장
+          wc -l output_data/logs/app.log >> output_data/summary.txt || true
 
-      # 4단계: 시스템 리소스 및 하드웨어 정보 (전문가 - 시스템 엔지니어링)
-      - name: 4. System & Hardware Info
+      # --- [최종 단계: 저장소로 파일 자동 업로드 (토큰 불필요)] ---
+      - name: 5. Commit & Push Changes
         run: |
-          echo "=== 🐧 Kernel Info (uname) ==="
-          uname -a || true
+          echo "=== 🚀 Prepare to Push to koreatest12/studys ==="
           
-          echo "=== 💿 Disk Usage (df, du) ==="
-          df -Th || true
-          # 현재 디렉토리 용량 상세 확인
-          du -sh * || true
+          # 1. 깃 설정 (가상 유저)
+          git config --global user.name "Linux-Lab-Bot"
+          git config --global user.email "bot@noreply.github.com"
           
-          echo "=== 🧠 Memory & CPU (free, lscpu, top) ==="
-          free -h || true
-          lscpu | head -n 10 || true
-          # top은 대화형이므로 배치 모드(-b)로 1회(-n 1) 실행
-          top -b -n 1 | head -n 10 || true
-
-      # 5단계: 텍스트 프로세싱 및 로그 분석 (전문가 - 데이터 가공)
-      # 가장 많이 쓰이는 grep, sed, awk, find, sort, uniq 총집합
-      - name: 5. Advanced Text Processing
-        run: |
-          echo "=== 🔍 Search (grep) ==="
-          # 대소문자 무시(-i), 줄번호(-n)
-          grep -i -n "critical" data/logs/app.log || true
+          # 2. 변경된 파일 추가 (output_data 폴더)
+          git add output_data/
           
-          echo "=== ✂️ Stream Editor (sed) ==="
-          # 파일 내 'Process'라는 단어를 'Task'로 치환하여 출력
-          sed 's/Process/Task/g' data/logs/app.log | head -n 3 || true
+          # 3. 커밋 (변경사항이 없으면 에러 안 나게 처리)
+          git commit -m "Results: Linux Lab Auto-Save [$(date)]" || echo "⚠️ No changes to commit"
           
-          echo "=== 📊 Data Extraction (awk) ==="
-          # ls -l 결과에서 파일 크기(5번째 필드)와 이름(9번째 필드)만 출력
-          ls -l data/config | awk '{print $5, $9}' || true
-          
-          echo "=== 🕵️ File Finding (find) ==="
-          # /etc 폴더에서 이름에 'release'가 들어가는 파일 찾기 (에러 무시)
-          find /etc -name "*release*" 2>/dev/null || true
-          
-          echo "=== 🔢 Sorting & Counting (sort, uniq) ==="
-          # 중복 데이터 생성 및 카운트
-          echo -e "apple\nbanana\napple\norange" > fruits.txt
-          sort fruits.txt | uniq -c || true
-
-      # 6단계: 네트워크 및 프로세스 (전문가 - 트러블슈팅)
-      # 에러가 발생했던 ping 등을 포함하여 안전하게 실행
-      - name: 6. Network & Process Management
-        run: |
-          echo "=== 🌐 Network Status (ip, netstat) ==="
-          ip addr show || true
-          # 포트 확인 (ss 명령어가 최신 리눅스 표준)
-          ss -tuln || true
-          
-          echo "=== 📡 Connectivity Test (ping, curl) ==="
-          # ping이 막혀도 || true 덕분에 멈추지 않음
-          ping -c 3 8.8.8.8 || true 
-          echo "⚠️ Ping skipped or failed, but workflow continues!"
-          
-          # 헤더만 가져오기 (-I), 에러시 조용히 (-s)
-          curl -I https://www.google.com || true
-          
-          echo "=== 🏭 Process Check (ps, kill) ==="
-          ps -ef --sort=-%cpu | head -n 5 || true
-          # 백그라운드 프로세스 실행 및 종료 테스트
-          sleep 10 & 
-          PID=$!
-          echo "Started sleep process: $PID"
-          kill -9 $PID || true
-          echo "Killed process $PID"
-
-      # 7단계: 쉘 스크립트 자동화 기능 (마스터)
-      - name: 7. Automation Scripting Logic
-        run: |
-          echo "=== 📜 Simple Loop & Condition ==="
-          # 파일 존재 여부 확인 스크립트
-          if [ -f "data/config/settings.conf" ]; then
-            echo "✅ Config file exists."
-          else
-            echo "❌ Config file missing."
-          fi || true
-          
-          echo "=== 📅 Date & Time Variable ==="
-          NOW=$(date '+%Y-%m-%d %H:%M:%S')
-          echo "Current Deployment Time: $NOW" || true
-          
-          echo "🎉 All Comprehensive Linux Commands Executed Successfully!"
+          # 4. 푸시 (GITHUB_TOKEN 사용 - 별도 인증 불필요)
+          git push
+          echo "✅ Successfully pushed results to repository!"
