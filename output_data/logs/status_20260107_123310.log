@@ -1,0 +1,22 @@
+=== System Snapshot [Wed Jan  7 12:33:10 UTC 2026] ===
+--- Disk ---
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/root        72G   54G   19G  75% /
+tmpfs           7.9G   84K  7.9G   1% /dev/shm
+tmpfs           3.2G  1.2M  3.2G   1% /run
+tmpfs           5.0M     0  5.0M   0% /run/lock
+/dev/sdb16      881M   62M  758M   8% /boot
+/dev/sdb15      105M  6.2M   99M   6% /boot/efi
+/dev/sda1        74G  4.1G   66G   6% /mnt
+tmpfs           1.6G   12K  1.6G   1% /run/user/1001
+--- Memory ---
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       829Mi       9.6Gi        42Mi       5.6Gi        14Gi
+Swap:          4.0Gi          0B       4.0Gi
+--- Processes (Top 5) ---
+    PID    PPID CMD                         %MEM %CPU
+   1995    1979 /home/runner/actions-runner  0.7 39.1
+   1979    1917 /home/runner/actions-runner  0.5 18.5
+      1       0 /sbin/init                   0.0  3.4
+   1577     848 /usr/bin/python3 -u bin/WAL  0.2  0.9
+     75       2 [kworker/u16:3-flush-8:16]   0.0  0.7
