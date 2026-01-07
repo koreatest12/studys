@@ -1,0 +1,12 @@
+snapshot_time: 20260107_142557
+ 14:25:58 up 2 min,  0 user,  load average: 1.11, 0.62, 0.25
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       911Mi       6.4Gi        47Mi       8.7Gi        14Gi
+Swap:          4.0Gi          0B       4.0Gi
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+runner      4869  0.0  0.0      0     0 ?        Z    14:25   0:00 [zombie_exec] <defunct>
+runner      4870  0.0  0.0      0     0 ?        Z    14:25   0:00 [zombie_exec] <defunct>
+runner      4871  0.0  0.0      0     0 ?        Z    14:25   0:00 [zombie_exec] <defunct>
+runner      4872  0.0  0.0      0     0 ?        Z    14:25   0:00 [zombie_exec] <defunct>
+runner      4873  0.0  0.0      0     0 ?        Z    14:25   0:00 [zombie_exec] <defunct>
+runner      4877  0.0  0.0   6952  2056 ?        S    14:25   0:00 grep Z\|defunct
