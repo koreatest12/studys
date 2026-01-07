@@ -1,0 +1,110 @@
+name: Linux Command Mastery Lab
+# 이 워크플로우는 코드를 푸시하거나, GitHub 웹에서 수동으로 실행할 수 있습니다.
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  linux-practice:
+    runs-on: ubuntu-latest  # 리눅스 환경(Ubuntu)에서 실행
+
+    steps:
+      # 1단계: 환경 확인 (초보자 단계)
+      # 현재 위치와 어떤 사용자로 실행되는지 확인합니다.
+      - name: 1. Basic Navigation & Info
+        run: |
+          echo "=== 📍 Current Location ==="
+          pwd
+          echo "=== 👤 User Info ==="
+          whoami
+          echo "=== 📂 Directory List ==="
+          ls -al
+
+      # 2단계: 파일 및 디렉토리 조작 (사용자 단계)
+      # 폴더를 만들고, 파일을 생성하고, 복사하고, 이동합니다.
+      - name: 2. File & Directory Operations
+        run: |
+          echo "::: Creating Workspace :::"
+          mkdir -p workspace/logs
+          mkdir -p workspace/backup
+          
+          echo "::: Creating Dummy Files :::"
+          touch workspace/logs/app.log
+          echo "Error: Connection Timeout at 10:00" >> workspace/logs/app.log
+          echo "Info: Service Started at 10:01" >> workspace/logs/app.log
+          echo "Error: Database Fail at 10:05" >> workspace/logs/app.log
+          
+          echo "::: Copying & Moving :::"
+          cp -r workspace/logs workspace/backup/
+          mv workspace/backup/logs workspace/backup/logs_archive
+          
+          echo "::: Checking Structure :::"
+          # -R 옵션은 하위 디렉토리까지 모두 보여줍니다.
+          ls -R workspace
+
+      # 3단계: 시스템 리소스 확인 (중급자 단계)
+      # 실제 GitHub 러너(서버)의 CPU, 메모리, 디스크 상태를 확인합니다.
+      - name: 3. System Resource Monitoring
+        run: |
+          echo "=== 💾 Disk Usage (df) ==="
+          df -h | grep "^/dev"  # 주요 파일시스템만 필터링
+          
+          echo "=== 🧠 Memory Usage (free) ==="
+          free -h
+          
+          echo "=== ⚙️ CPU Info (lscpu) ==="
+          lscpu | head -n 10  # 상위 10줄만 출력
+          
+          echo "=== 🔄 Process Check (ps) ==="
+          # 현재 실행 중인 프로세스 중 docker 관련 프로세스 검색
+          ps -ef | grep docker || true
+
+      # 4단계: 고급 텍스트 처리 및 파이프라인 (고급 사용자 단계)
+      # 앞서 만든 로그 파일에서 'Error'만 추출하고 개수를 셉니다.
+      - name: 4. Text Processing & Piping (grep, awk)
+        run: |
+          echo "=== 🔍 Searching for Errors ==="
+          grep "Error" workspace/logs/app.log
+          
+          echo "=== 📊 Counting Error Occurrences ==="
+          # grep으로 찾고 | wc -l 로 라인 수를 셉니다.
+          grep "Error" workspace/logs/app.log | wc -l
+          
+          echo "=== ✂️ Extracting Time only (awk) ==="
+          # 로그에서 시간 부분(마지막 단어)만 잘라냅니다.
+          grep "Error" workspace/logs/app.log | awk '{print $NF}'
+
+      # 5단계: 네트워크 통신 확인 (전문가 단계)
+      # 외부 인터넷 연결을 확인하고 응답 헤더를 받아옵니다.
+      - name: 5. Network & Connectivity
+        run: |
+          echo "=== 🌐 Ping Test ==="
+          # -c 3 은 3번만 보내고 멈춘다는 뜻입니다 (무한루프 방지)
+          ping -c 3 8.8.8.8
+          
+          echo "=== 🌍 HTTP Check (curl) ==="
+          # 구글 메인페이지의 헤더 정보만 가져옵니다.
+          curl -I https://www.google.com
+
+      # 6단계: 자동화 스크립트 작성 및 실행 (마스터 단계)
+      # 즉석에서 쉘 스크립트 파일을 만들고, 권한을 주고, 실행합니다.
+      - name: 6. Scripting & Automation
+        run: |
+          echo "=== 📝 Creating Deploy Script ==="
+          # cat <<EOF 를 사용해 여러 줄의 내용을 파일로 저장합니다.
+          cat <<EOF > deploy.sh
+          #!/bin/bash
+          echo "🚀 Starting Deployment Simulation..."
+          CURRENT_DATE=\$(date)
+          echo "⏰ Time: \$CURRENT_DATE"
+          echo "✅ Deploy Finished Successfully!"
+          EOF
+          
+          echo "=== 🔐 Changing Permission ==="
+          ls -l deploy.sh
+          chmod +x deploy.sh  # 실행 권한 부여
+          ls -l deploy.sh
+          
+          echo "=== 🎬 Running Script ==="
+          ./deploy.sh
