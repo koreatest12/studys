@@ -1,88 +1,83 @@
-name: AI Ops Master (Auto 10min & Bulk)
+name: Server Upgrade & Ops Master
 
 on:
-  # 1. 스케줄러: 10분마다 자동 실행
   schedule:
-    - cron: '*/10 * * * *'
-  
-  # 2. 수동 실행: 원할 때 즉시 실행 가능
+    - cron: '*/10 * * * *' # 10분마다 실행
   workflow_dispatch:
     inputs:
       mode:
-        description: '실행 모드 (auto/create/update/close/report)'
+        description: '실행 모드'
         required: true
         default: 'auto'
         type: choice
         options:
-          - auto     # 10분마다 도는 자동 모드 (파일 스캔 + 리포트 갱신)
-          - create   # 이슈 대량 생성
-          - update   # 이슈 대량 수정 (라벨링)
-          - close    # 이슈 대량 닫기
-          - report   # 리포트 추출
+          - auto
+          - create
+          - update
       count:
-        description: '처리할 개수'
-        required: false
         default: '10'
 
 jobs:
-  ai-automation:
+  server-ops:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 파일 수정 및 업로드 권한
-      issues: write    # 이슈 관리 권한
+      contents: write
+      issues: write
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 전체 히스토리 가져오기 (충돌 방지용)
+          fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      # [서버 업그레이드 기능 추가]
+      # 시스템 패키지와 파이썬 라이브러리를 최신으로 강제 업데이트
+      - name: 🔥 Upgrade Server Environment
+        run: |
+          echo "Checking for system updates..."
+          sudo apt-get update -y
+          
+          echo "Upgrading Core Dependencies..."
+          python -m pip install --upgrade pip
+          pip install --upgrade PyGithub pandas requests
+          
+          echo "✅ Server Environment Upgraded Successfully."
 
-      - name: Install Dependencies
-        run: pip install PyGithub pandas
-
-      - name: Run Ultimate Issue Manager
+      - name: Run Ops Script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
-          # 스케줄 실행(cron)일 경우 자동으로 'auto' 모드로 동작
           MODE: ${{ github.event_name == 'schedule' && 'auto' || inputs.mode }}
           COUNT: ${{ inputs.count }}
         run: |
           if [ -f "scripts/issue_manager.py" ]; then
             python scripts/issue_manager.py
           else
-            echo "❌ Error: scripts/issue_manager.py 파일을 찾을 수 없습니다."
+            echo "❌ Script not found!"
             exit 1
           fi
 
-      - name: Commit and Push Changes (Robust Sync)
+      - name: Sync & Push to Server (Robust)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # 변경 사항이 있는지 확인
           if [ -n "$(git status --porcelain)" ]; then
             git add .
-            git commit -m "🤖 AI Ops: Auto-update report & status [skip ci]"
+            git commit -m "🚀 Server Upgrade & Auto-Update [skip ci]"
             
-            # --- [강력한 충돌 해결 로직] 5번까지 재시도 ---
+            # 충돌 방지 재시도 루프 (최대 5회)
             n=0
             until [ "$n" -ge 5 ]
             do
-               echo "🔄 Pulling latest changes (Attempt $((n+1)))..."
+               echo "🔄 Syncing with remote server (Attempt $((n+1)))..."
                git pull --rebase origin ${GITHUB_REF_NAME} && break
                n=$((n+1))
                sleep 5
             done
             
-            echo "🚀 Pushing to remote..."
             git push origin HEAD:${GITHUB_REF}
-            echo "✅ Successfully updated repository."
+            echo "✅ Server Sync Completed."
           else
-            echo "ℹ️ No changes to commit."
+            echo "ℹ️ No changes needed."
           fi
