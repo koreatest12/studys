@@ -1,10 +1,10 @@
-name: Mass Build & Dockerfile Generation & Deploy
+name: Fixed Mass Build & Docker Deploy
 
 on:
   push:
     branches: [ main ]
   schedule:
-    - cron: '*/10 * * * *'  # 10분 단위 대량 반복 수행
+    - cron: '*/10 * * * *'  # 10분 단위 반복
   workflow_dispatch:
 
 permissions:
@@ -13,23 +13,41 @@ permissions:
   issues: write
 
 jobs:
-  mass-deployment:
+  mass-fix-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 소스 코드 체크아웃 (전체 히스토리)
+      # 1. 소스 코드 체크아웃 (Git 충돌 방지용 전체 호출)
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 서버 환경 대량 업데이트 및 필수 도구 설치
-      - name: Mass Server Update & Install Tools
+      # 2. [수정됨] 패키지 충돌 방지 및 유틸리티 설치
+      # docker.io를 apt-get에서 제거하여 충돌 에러(Exit code 100) 해결
+      - name: Mass Server Update & Install Utilities
         run: |
-          sudo apt-get update && sudo apt-get upgrade -y
-          sudo apt-get install -y curl wget git unzip tree docker.io
+          sudo apt-get update
+          # 충돌을 피하기 위해 docker.io 제거, 필수 유틸리티만 설치
+          sudo apt-get install -y curl wget git unzip tree acl
 
-      # 3. Java 17 세팅
+      # 3. [추가] Docker 상태 확인 및 권한 대량 부여
+      # 이미 설치된 Docker를 활용하거나, 없을 경우 안전한 스크립트로 설치
+      - name: Setup Docker Environment
+        run: |
+          if ! command -v docker &> /dev/null; then
+            echo "Docker not found. Installing via official script..."
+            curl -fsSL https://get.docker.com -o get-docker.sh
+            sh get-docker.sh
+          else
+            echo "Docker is already installed. Skipping installation to avoid conflicts."
+          fi
+          
+          # 소켓 권한 부여 (Permission denied 방지)
+          sudo chmod 666 /var/run/docker.sock
+          docker version
+
+      # 4. Java 17 설정
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -37,11 +55,10 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # 4. Dockerfile 대량/자동 생성 (요청하신 내용 반영)
+      # 5. Dockerfile 강제 대량 생성 (요청 내용 반영)
       - name: Generate Dockerfile Massively
         run: |
-          echo "Generating Dockerfile..."
-          # 기존 파일이 있어도 덮어씌움 (항상 최신 상태 유지)
+          echo "Overwriting Dockerfile with mass settings..."
           cat <<EOF > Dockerfile
           # Base Image (Java 17)
           FROM eclipse-temurin:17-jdk-alpine
@@ -59,53 +76,48 @@ jobs:
           ENTRYPOINT ["java", "-jar", "app.jar"]
           EOF
           
-          # 생성 확인
           cat Dockerfile
 
-      # 5. Maven 빌드 (pom.xml 자동 생성 포함)
+      # 6. Maven 빌드 (pom.xml 자동 생성 포함)
       - name: Build with Maven
         run: |
-          # pom.xml 없을 시 자동 생성
           if [ ! -f pom.xml ]; then
             echo '<project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>demo</artifactId><version>0.0.1-SNAPSHOT</version><properties><java.version>17</java.version></properties></project>' > pom.xml
           fi
-          # 테스트 건너뛰고 패키징
           mvn -B package --file pom.xml -DskipTests
 
-      # 6. Docker 이미지 대량 빌드 및 컨테이너 실행
+      # 7. Docker 이미지 빌드 및 컨테이너 실행
       - name: Build Image & Run Container
         run: |
-          # 이미지 빌드
           docker build -t my-mass-app:latest .
           
-          # 기존 컨테이너 정리 후 재실행
+          # 기존 컨테이너 삭제 후 재생성
           docker rm -f my-mass-container || true
           docker run -d --name my-mass-container -p 8080:8080 my-mass-app:latest
           
-          # 실행 상태 확인
           docker ps -a
 
-      # 7. Git 충돌 방지 및 대량 업데이트 사항 커밋/푸시
+      # 8. Git 충돌 해결 및 대량 업데이트 커밋
       - name: Mass Git Push & Update
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 로그 파일 생성
+          # 로그 디렉토리 및 파일 생성
           mkdir -p logs
-          echo "Run at $(date)" >> logs/deployment_log.txt
+          echo "Fixed Deploy at $(date)" >> logs/fix_log.txt
           
-          # Dockerfile도 저장소에 반영하기 위해 추가
+          # 생성된 Dockerfile 및 로그 추가
           git add Dockerfile logs/
           
-          # 원격 변경사항 먼저 가져오기 (충돌 방지 핵심)
+          # 원격 변경사항 가져오기 (Rebase로 충돌 방지)
           git pull origin main --rebase
           
-          # 변경사항이 있을 경우에만 푸시
+          # 변경사항 푸시
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Auto: Mass Dockerfile Update & Server Deploy [skip ci]"
+            git commit -m "Fix: Resolve Docker Conflict & Mass Update [skip ci]"
             git push origin main
           fi
         env:
