@@ -1,4 +1,4 @@
-name: Mass Java 17 Fix & Compiler Upgrade & Deploy
+name: Mass n8n Sync & Force Fix & Deploy
 
 on:
   push:
@@ -7,11 +7,11 @@ on:
     - cron: '*/10 * * * *'   # 10분 단위 대량 반복
   workflow_dispatch:
 
-# [전역 설정] 인코딩 강제
+# [전역] 인코딩 UTF-8 강제
 env:
   LANG: C.UTF-8
   LC_ALL: C.UTF-8
-  JAVA_TOOL_OPTIONS: "-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Duser.language=en -Duser.country=US"
+  JAVA_TOOL_OPTIONS: "-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"
 
 permissions:
   contents: write
@@ -19,186 +19,149 @@ permissions:
   issues: write
 
 jobs:
-  mass-compiler-fix:
+  mass-n8n-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. [용량] 디스크 정리
+      # 1. [용량] n8n 대량 통합을 위한 디스크 최대 확보
       - name: Massive Disk Cleanup
         run: |
-          echo "Cleaning up disk space..."
+          echo "Maximizing disk space for n8n integration..."
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
           
           if command -v docker &> /dev/null; then
             sudo docker image prune --all --force
           fi
           df -h
 
-      # 2. 소스 코드 체크아웃
+      # 2. 소스 코드 체크아웃 (전체 히스토리)
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 3. [인코딩] Git 설정
-      - name: Fix Git Encoding
+      # 3. [n8n 핵심] n8n 저장소 대량 복제 및 통합 (요청사항 반영)
+      - name: Mass Clone n8n Repository
         run: |
-          git config --global core.quotepath false
-          git config --global i18n.commitencoding utf-8
-          git config --global i18n.logoutputencoding utf-8
+          echo "Cloning n8n repository massively..."
+          
+          # n8n 저장소용 디렉토리 생성
+          mkdir -p n8n_integration
+          
+          # n8n 공식 저장소 클론 (용량 최적화를 위해 depth 1 사용)
+          git clone --depth 1 https://github.com/n8n-io/n8n.git n8n_integration/n8n_source
+          
+          # .git 폴더 제거 (서브모듈 문제 방지 및 단순 파일로 통합)
+          rm -rf n8n_integration/n8n_source/.git
+          
+          echo "n8n files integrated successfully."
+          ls -F n8n_integration/
 
-      # 4. [서비스] 필수 툴 설치
-      - name: Mass Install Services
+      # 4. [권한] n8n 포함 모든 파일 대량 권한 부여 (777)
+      - name: Mass Permission Grant
         run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk maven curl wget git unzip tree acl build-essential locales
-          sudo locale-gen en_US.UTF-8
+          echo "Granting 777 permissions to ALL files..."
+          sudo chmod -R 777 .
+          sudo chown -R $USER:$USER .
 
-      # 5. [JDK] 액션 환경 설정
-      - name: Set up JDK 17 with Cache
+      # 5. [Java/Maven] 필수 설정 및 XML 대량 생성
+      - name: Setup Java & Generate Configs
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'maven'
 
-      # 6. [핵심 수정] pom.xml 강제 덮어쓰기 (Java 5 에러 해결)
-      - name: Mass Generate Configs (Force Update)
+      - name: Mass Generate Maven/Docker Configs
         run: |
-          echo "Overwriting configuration files to fix compilation errors..."
+          mkdir -p src/main/java/com/example/demo src/main/resources ~/.m2
           
-          mkdir -p src/main/java/com/example/demo
-          mkdir -p src/main/resources
-          mkdir -p ~/.m2
-          
-          # 1. Java 소스 코드 생성 (없을 경우)
-          if [ ! -f src/main/java/com/example/demo/DemoApplication.java ]; then
-            cat <<EOF > src/main/java/com/example/demo/DemoApplication.java
-          package com.example.demo;
-          public class DemoApplication {
-              public static void main(String[] args) {
-                  System.out.println("Java 17 Build Successful!");
-              }
-          }
-          EOF
-          fi
-          
-          # 2. [POM 수정] 컴파일러 버전을 17로 명시하여 에러 해결
-          # 기존 파일이 있어도 강제로 덮어씌웁니다.
+          # pom.xml (Java 17 명시)
           cat <<EOF > pom.xml
-          <project xmlns="http://maven.apache.org/POM/4.0.0" 
-                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+          <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
             <modelVersion>4.0.0</modelVersion>
             <groupId>com.example</groupId>
             <artifactId>demo</artifactId>
             <version>0.0.1-SNAPSHOT</version>
             <packaging>jar</packaging>
-            
             <properties>
               <java.version>17</java.version>
               <maven.compiler.source>17</maven.compiler.source>
               <maven.compiler.target>17</maven.compiler.target>
               <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-              <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
             </properties>
-            
             <build>
               <plugins>
                 <plugin>
                   <groupId>org.apache.maven.plugins</groupId>
                   <artifactId>maven-compiler-plugin</artifactId>
                   <version>3.11.0</version>
-                  <configuration>
-                    <source>17</source>
-                    <target>17</target>
-                    <encoding>UTF-8</encoding>
-                  </configuration>
-                </plugin>
-                <plugin>
-                  <groupId>org.apache.maven.plugins</groupId>
-                  <artifactId>maven-resources-plugin</artifactId>
-                  <version>3.3.1</version>
-                  <configuration>
-                    <encoding>UTF-8</encoding>
-                  </configuration>
-                </plugin>
-                <plugin>
-                  <groupId>org.apache.maven.plugins</groupId>
-                  <artifactId>maven-jar-plugin</artifactId>
-                  <version>3.3.0</version>
-                  <configuration>
-                    <archive>
-                      <manifest>
-                        <mainClass>com.example.demo.DemoApplication</mainClass>
-                      </manifest>
-                    </archive>
-                  </configuration>
+                  <configuration><source>17</source><target>17</target><encoding>UTF-8</encoding></configuration>
                 </plugin>
               </plugins>
             </build>
           </project>
           EOF
           
-          # 3. Dockerfile 생성
+          # Java Source
+          if [ ! -f src/main/java/com/example/demo/DemoApplication.java ]; then
+            echo "package com.example.demo; public class DemoApplication { public static void main(String[] args) { System.out.println(\"n8n Integrated!\"); } }" > src/main/java/com/example/demo/DemoApplication.java
+          fi
+          
+          # Dockerfile
           cat <<EOF > Dockerfile
           FROM eclipse-temurin:17-jdk-alpine
-          ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
           WORKDIR /app
           COPY target/*.jar app.jar
           RUN mkdir -p /app/logs /app/data && chmod -R 777 /app
-          ENTRYPOINT ["java", "-Dfile.encoding=UTF-8", "-jar", "app.jar"]
+          ENTRYPOINT ["java", "-jar", "app.jar"]
           EOF
-          
-          # 권한 대량 부여
-          sudo chmod -R 777 .
 
-      # 7. [캐시] 의존성 미리 받기
-      - name: Mass Create Cache Files
-        run: mvn dependency:go-offline -B --file pom.xml
-
-      # 8. Maven 빌드 (이제 Java 17로 컴파일됨)
+      # 6. Maven 빌드
       - name: Build with Maven
         run: mvn -B package --file pom.xml -DskipTests -Dfile.encoding=UTF-8
 
-      # 9. Docker 이미지 빌드 및 실행
-      - name: Build & Run Container
-        run: |
-          if ! command -v docker &> /dev/null; then
-            curl -fsSL https://get.docker.com -o get-docker.sh
-            sh get-docker.sh
-          fi
-          
-          if [ -e /var/run/docker.sock ]; then
-            sudo chmod 666 /var/run/docker.sock
-          fi
-  
-          docker rm -f my-mass-container || true
-          docker build -t my-mass-app:latest .
-          docker run -d --name my-mass-container -p 8080:8080 my-mass-app:latest
-          docker ps -a
-
-      # 10. [Git] 수정된 pom.xml 대량 푸시
-      - name: Mass Git Push & Update
+      # 7. [Git Fix] 대량 통합 및 강제 동기화 (에러 해결 핵심)
+      - name: Mass Git Push & Sync
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global core.quotepath false
           
+          # 로그 생성
           mkdir -p logs
-          echo "Compiler Fixed at $(date)" >> logs/deploy_log.txt
+          echo "n8n Integration & Fix at $(date)" >> logs/deploy_log.txt
           
+          # 1. n8n 포함 모든 변경사항 스테이징
           git add .
           
+          # 2. 로컬 커밋
           if ! git diff --staged --quiet; then
-            git commit -m "Fix: Upgrade Java Compiler to 17 [skip ci]"
-            echo "Changes committed."
+            git commit -m "Mass Update: n8n Integration & Fix [skip ci]"
+            echo "Local changes committed."
           else
-            echo "No changes."
+            echo "No changes to commit."
           fi
           
-          git pull origin main --rebase
-          git push origin main
+          # 3. [충돌 해결 로직] 풀(Pull) 시도 후 실패 시 재시도
+          echo "Syncing with remote..."
+          
+          # 원격 변경사항 가져오기
+          git fetch origin main
+          
+          # Rebase 시도 (충돌 시 자동 스태시 사용)
+          if git pull origin main --rebase --autostash; then
+            echo "Rebase successful. Pushing..."
+            git push origin main
+          else
+            echo "Rebase failed or conflict detected."
+            echo "Attempting standard merge strategy..."
+            git rebase --abort || true
+            git pull origin main --no-rebase -s recursive -X ours
+            git push origin main
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
