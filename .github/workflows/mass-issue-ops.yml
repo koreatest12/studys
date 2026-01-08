@@ -1,0 +1,55 @@
+name: Mass Issue Operations (AI Ops)
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation_mode:
+        description: '실행할 모드를 선택하세요'
+        required: true
+        default: 'analyze_and_reflect'
+        type: choice
+        options:
+          - bulk_create_demo      # 테스트용 이슈 대량 생성
+          - analyze_and_reflect   # 대량 추출 -> 모델링 -> 대량 반영
+          - export_report         # 전체 이슈 요약 리포트 추출 (Artifact)
+      target_limit:
+        description: '처리할 이슈 최대 개수 (API 제한 방지)'
+        required: false
+        default: '10'
+
+jobs:
+  ai-ops-processor:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests pandas PyGithub openai
+
+      - name: Run AI Ops Script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }} # AI 사용을 위한 키 (없으면 GitHub Models 등으로 대체 가능)
+          REPO_NAME: ${{ github.repository }}
+          MODE: ${{ inputs.operation_mode }}
+          LIMIT: ${{ inputs.target_limit }}
+        run: |
+          python .github/scripts/issue_manager.py
+          
+      - name: Upload Report (If Export Mode)
+        if: inputs.operation_mode == 'export_report'
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-report
+          path: issue_report.csv
