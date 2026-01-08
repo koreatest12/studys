@@ -1,30 +1,33 @@
-name: AI Ops Master (Bulk Create & Update)
+name: Ultimate Issue Manager
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: '실행 모드 선택'
+        description: '실행 모드 (create/update/close/report/all)'
         required: true
-        default: 'bulk_update'
+        default: 'all'
         type: choice
         options:
-          - bulk_create       # 이슈 대량 생성 (테스트용)
-          - bulk_update       # 대량 분석 및 수정 (라벨/댓글 반영)
+          - create   # 대량 생성
+          - update   # 대량 수정 (라벨링)
+          - close    # 대량 닫기
+          - report   # CSV 추출
+          - all      # 생성 -> 수정 -> 리포트 추출 (전체)
       count:
-        description: '처리할 개수 (생성 또는 수정할 수)'
+        description: '실행 횟수 제한 (Loop Limit)'
         required: false
-        default: '5'
+        default: '10'
 
 jobs:
-  process-issues:
+  manage-issues:
     runs-on: ubuntu-latest
     permissions:
-      issues: write
-      contents: read
+      contents: write  # 레포지토리에 파일 업로드(Push) 권한
+      issues: write    # 이슈 수정 권한
     
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -33,99 +36,46 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install PyGithub openai
+        run: |
+          pip install PyGithub
 
-      - name: Run AI Ops Logic
+      - name: Run Issue Manager Script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }} # 없으면 더미 데이터로 동작
           REPO_NAME: ${{ github.repository }}
           MODE: ${{ inputs.mode }}
           COUNT: ${{ inputs.count }}
-        shell: python
+        # [중요] 사용자가 제공한 경로(scripts/)에 파일이 있다고 가정하고 실행
         run: |
-          import os
-          import sys
-          import random
-          from github import Github
+          if [ -f "scripts/issue_manager.py" ]; then
+            python scripts/issue_manager.py
+          else
+            echo "❌ Error: scripts/issue_manager.py 파일을 찾을 수 없습니다."
+            echo "레포지토리의 scripts 폴더에 파일이 있는지 확인해주세요."
+            exit 1
+          fi
+
+      # [서버 업데이트/디렉토리 업로드] 
+      # 스크립트가 생성한 파일(예: issue_report.csv)이 있다면 레포지토리에 반영
+      - name: Commit and Push Changes (Server Update)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # --- 환경 변수 로드 ---
-          token = os.environ.get('GH_TOKEN')
-          repo_name = os.environ.get('REPO_NAME')
-          mode = os.environ.get('MODE')
-          count = int(os.environ.get('COUNT', 5))
-          
-          g = Github(token)
-          repo = g.get_repo(repo_name)
+          # CSV 파일이 생성되었는지 확인
+          if [ -f "issue_report.csv" ]; then
+            git add issue_report.csv
+            git commit -m "Update issue report [skip ci]" || echo "No changes to commit"
+            git push
+            echo "✅ Server updated with new report."
+          else
+            echo "ℹ️ No report file generated to upload."
+          fi
 
-          print(f"🚀 Operation Mode: {mode}")
-          print(f"🎯 Target Count: {count}")
-
-          # --- 1. 대량 생성 (Bulk Create) 로직 ---
-          def run_bulk_create():
-              print(">> Starting Bulk Issue Creation...")
-              sample_titles = [
-                  "[Bug] 결제 시스템 오류 발생",
-                  "[Feature] 소셜 로그인 기능 추가",
-                  "[Docs] 리드미 파일 업데이트 요청",
-                  "[Refactor] 레거시 코드 정리",
-                  "[Design] 메인 페이지 UI 개선"
-              ]
-              
-              for i in range(count):
-                  title = f"{random.choice(sample_titles)} - AutoGen #{i+1}"
-                  body = f"이 이슈는 AI Ops 자동화 테스트를 위해 생성되었습니다.\n\nTime: {os.environ.get('GITHUB_RUN_ID')}"
-                  
-                  new_issue = repo.create_issue(title=title, body=body)
-                  print(f"✅ Created Issue #{new_issue.number}: {title}")
-
-          # --- 2. 대량 수정/반영 (Bulk Update) 로직 ---
-          def run_bulk_update():
-              print(">> Starting Bulk Issue Analysis & Update...")
-              # 열려있는 이슈 가져오기
-              issues = repo.get_issues(state='open')
-              
-              processed = 0
-              for issue in issues:
-                  if processed >= count:
-                      break
-                  
-                  print(f"🔍 Analyzing #{issue.number}: {issue.title}")
-                  
-                  # (실제 AI 연동 대신 로직으로 시뮬레이션 - API 키 오류 방지)
-                  # 제목에 따라 라벨과 우선순위를 자동 결정
-                  labels_to_add = []
-                  ai_comment = ""
-                  
-                  if "Bug" in issue.title or "오류" in issue.title:
-                      labels_to_add.append("bug")
-                      ai_comment = "🚨 **AI Analysis**: This seems to be a bug. Priority set to High."
-                  elif "Feature" in issue.title or "기능" in issue.title:
-                      labels_to_add.append("enhancement")
-                      ai_comment = "✨ **AI Analysis**: This is a feature request. Added to backlog."
-                  else:
-                      labels_to_add.append("needs-triage")
-                      ai_comment = "❓ **AI Analysis**: Needs manual review."
-                  
-                  # 라벨 추가 (이미 있으면 패스)
-                  current_labels = [l.name for l in issue.labels]
-                  new_labels = [l for l in labels_to_add if l not in current_labels]
-                  
-                  if new_labels:
-                      issue.add_to_labels(*new_labels)
-                      print(f"   -> Added Labels: {new_labels}")
-                  
-                  # 댓글 달기 (중복 방지 로직: 이미 봇 댓글이 있으면 스킵 가능하지만 여기선 일단 작성)
-                  issue.create_comment(ai_comment)
-                  print(f"   -> Posted Comment")
-                  
-                  processed += 1
-
-          # --- 메인 실행 ---
-          if mode == 'bulk_create':
-              run_bulk_create()
-          elif mode == 'bulk_update':
-              run_bulk_update()
-          else:
-              print(f"Error: Unknown mode {mode}")
-              sys.exit(1)
+      # [아티팩트 업로드] 파일 다운로드 기능 제공
+      - name: Upload Report Artifact
+        if: inputs.mode == 'report' || inputs.mode == 'all'
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-report-csv
+          path: issue_report.csv
