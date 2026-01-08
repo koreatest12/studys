@@ -1,4 +1,4 @@
-name: Mass Fix Conflict & Deploy
+name: Mass Encoding Fix & XML/Cache Gen & Deploy
 
 on:
   push:
@@ -7,17 +7,23 @@ on:
     - cron: '*/10 * * * *'   # 10분 단위 대량 반복
   workflow_dispatch:
 
+# [인코딩 핵심 1] 워크플로우 전체에 UTF-8 강제 적용
+env:
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+  JAVA_TOOL_OPTIONS: "-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Duser.language=en -Duser.country=US"
+
 permissions:
   contents: write
   packages: write
   issues: write
 
 jobs:
-  mass-fix-deploy:
+  mass-encoding-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. [용량] 충돌 방지를 위한 디스크 정리 (외부 액션 미사용)
+      # 1. [용량] 디스크 정리 (30GB+ 확보)
       - name: Massive Disk Cleanup
         run: |
           echo "Cleaning up disk space..."
@@ -26,7 +32,6 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           
-          # Docker 이미지 정리 (설치 충돌과 무관하게 용량 확보용)
           if command -v docker &> /dev/null; then
             sudo docker image prune --all --force
           fi
@@ -38,92 +43,119 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 3. [수정됨] JDK 및 필수 유틸리티 대량 설치 (Docker 제외)
-      # docker.io를 여기서 설치하면 충돌(Exit code 100)이 발생하므로 제거했습니다.
+      # 3. [인코딩 핵심 2] Git 한글 깨짐 방지 설정
+      - name: Fix Git Encoding & Quoting
+        run: |
+          git config --global core.quotepath false
+          git config --global i18n.commitencoding utf-8
+          git config --global i18n.logoutputencoding utf-8
+          echo "Git encoding fixed for Korean characters."
+
+      # 4. [서비스] 필수 유틸리티 설치 (Docker 충돌 방지됨)
       - name: Mass Install JDK & Services
         run: |
-          echo "Installing System Services & JDK..."
           sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk maven curl wget git unzip tree acl build-essential locales
           
-          # 충돌 원인인 docker.io 제거하고, JDK와 나머지 유틸리티만 설치
-          sudo apt-get install -y openjdk-17-jdk maven curl wget git unzip tree acl build-essential
-          
-          # 설치 확인
-          java -version
-          mvn -version
+          # 로케일 생성 (UTF-8)
+          sudo locale-gen en_US.UTF-8
+          sudo update-locale LANG=en_US.UTF-8
 
-      # 4. [Docker 설정] 이미 설치된 Docker 활용 및 권한 부여
-      - name: Setup Docker Environment
-        run: |
-          # Docker가 없으면 공식 스크립트로 설치 (apt 충돌 회피)
-          if ! command -v docker &> /dev/null; then
-            echo "Docker not found. Installing via script..."
-            curl -fsSL https://get.docker.com -o get-docker.sh
-            sh get-docker.sh
-          else
-            echo "Docker is already installed. Skipping install to avoid conflicts."
-          fi
-          
-          # 소켓 권한 부여 (Permission denied 방지)
-          if [ -e /var/run/docker.sock ]; then
-            sudo chmod 666 /var/run/docker.sock
-          fi
-          docker --version
-
-      # 5. [Actions JDK] 환경 변수 설정
-      - name: Set up JDK 17 (Action Level)
+      # 5. [JDK] 액션 환경 설정 및 캐시
+      - name: Set up JDK 17 with Cache
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'maven'
 
-      # 6. [자가 치유] 설정 파일 및 디렉토리 강제 생성
-      - name: Auto-Fix & Generate Configs
+      # 6. [설정 파일] Maven/Docker 파일 대량 생성 (인코딩 옵션 주입)
+      - name: Mass Generate Configs (Encoding Inject)
         run: |
-          echo "Running Self-Healing Script..."
-          sudo chmod -R 777 .
+          mkdir -p ~/.m2
           
-          # Dockerfile 강제 생성
+          # 1. settings.xml
+          cat <<EOF > ~/.m2/settings.xml
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <interactiveMode>false</interactiveMode>
+          </settings>
+          EOF
+          
+          # 2. pom.xml 생성 (인코딩 속성 대량 추가)
+          if [ ! -f pom.xml ]; then
+            echo "Generating pom.xml with encoding properties..."
+            cat <<EOF > pom.xml
+          <project xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>com.example</groupId>
+            <artifactId>demo</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <properties>
+              <java.version>17</java.version>
+              <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+              <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+              <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
+            </properties>
+          </project>
+          EOF
+          fi
+          
+          # 3. Dockerfile 생성 (컨테이너 내부 인코딩 설정 추가)
           cat <<EOF > Dockerfile
           FROM eclipse-temurin:17-jdk-alpine
+          
+          # 컨테이너 로케일 설정
+          ENV LANG=C.UTF-8 \
+              LC_ALL=C.UTF-8
+              
           WORKDIR /app
           COPY target/*.jar app.jar
           RUN mkdir -p /app/logs /app/data && chmod -R 777 /app
-          ENTRYPOINT ["java", "-jar", "app.jar"]
+          
+          # JVM 실행 시 UTF-8 강제
+          ENTRYPOINT ["java", "-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8", "-jar", "app.jar"]
           EOF
           
-          # pom.xml 강제 생성
-          if [ ! -f pom.xml ]; then
-            echo '<project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>demo</artifactId><version>0.0.1-SNAPSHOT</version><properties><java.version>17</java.version></properties></project>' > pom.xml
-          fi
-          
-          mkdir -p logs reports
+          sudo chmod -R 777 .
 
-      # 7. Maven 빌드
+      # 7. [캐시] 의존성 미리 받기 (Offline 모드)
+      - name: Mass Create Cache Files
+        run: mvn dependency:go-offline -B --file pom.xml
+
+      # 8. Maven 빌드 (인코딩 인수 명시)
       - name: Build with Maven
-        run: mvn -B package --file pom.xml -DskipTests
+        run: mvn -B package --file pom.xml -DskipTests -Dfile.encoding=UTF-8
 
-      # 8. Docker 이미지 대량 빌드 및 실행
+      # 9. Docker 이미지 빌드 및 실행
       - name: Build & Run Container
         run: |
+          if ! command -v docker &> /dev/null; then
+            curl -fsSL https://get.docker.com -o get-docker.sh
+            sh get-docker.sh
+          fi
+          
+          if [ -e /var/run/docker.sock ]; then
+            sudo chmod 666 /var/run/docker.sock
+          fi
+  
           docker rm -f my-mass-container || true
           docker build -t my-mass-app:latest .
           docker run -d --name my-mass-container -p 8080:8080 my-mass-app:latest
           docker ps -a
 
-      # 9. [Git 충돌 해결] 커밋 -> 풀 -> 푸시
+      # 10. [Git] 대량 푸시 (UTF-8 로그 포함)
       - name: Mass Git Push & Update
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          echo "Fixed Conflict at $(date)" >> logs/deploy_log.txt
+          mkdir -p logs
+          echo "Deploy Success (Encoding Fixed) at $(date)" >> logs/deploy_log.txt
           
           git add .
           
           if ! git diff --staged --quiet; then
-            git commit -m "Fix: Resolve Docker Conflict & Mass Update [skip ci]"
+            git commit -m "Auto: Mass Encoding Fix & Deploy [skip ci]"
             echo "Changes committed."
           else
             echo "No changes."
