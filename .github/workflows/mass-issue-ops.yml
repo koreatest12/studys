@@ -1,36 +1,41 @@
-name: Ultimate Issue Manager (Fixed)
+name: AI Ops Master (Auto 10min & Bulk)
 
 on:
+  # 1. 스케줄러: 10분마다 자동 실행
+  schedule:
+    - cron: '*/10 * * * *'
+  
+  # 2. 수동 실행: 원할 때 즉시 실행 가능
   workflow_dispatch:
     inputs:
       mode:
-        description: '실행 모드 (create/update/close/report/all)'
+        description: '실행 모드 (auto/create/update/close/report)'
         required: true
-        default: 'all'
+        default: 'auto'
         type: choice
         options:
-          - create   # 대량 생성
-          - update   # 대량 수정 (라벨링)
-          - close    # 대량 닫기
-          - report   # CSV 추출
-          - all      # 전체 순차 실행
+          - auto     # 10분마다 도는 자동 모드 (파일 스캔 + 리포트 갱신)
+          - create   # 이슈 대량 생성
+          - update   # 이슈 대량 수정 (라벨링)
+          - close    # 이슈 대량 닫기
+          - report   # 리포트 추출
       count:
-        description: '실행 횟수 제한'
+        description: '처리할 개수'
         required: false
         default: '10'
 
 jobs:
-  manage-issues:
+  ai-automation:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Git Push 권한 필수
-      issues: write    # 이슈 수정 권한 필수
+      contents: write  # 파일 수정 및 업로드 권한
+      issues: write    # 이슈 관리 권한
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 전체 히스토리를 가져와야 병합 시 오류가 적음
+          fetch-depth: 0 # 전체 히스토리 가져오기 (충돌 방지용)
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,53 +43,46 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: |
-          pip install PyGithub
+        run: pip install PyGithub pandas
 
-      - name: Run Issue Manager Script
+      - name: Run Ultimate Issue Manager
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
-          MODE: ${{ inputs.mode }}
+          # 스케줄 실행(cron)일 경우 자동으로 'auto' 모드로 동작
+          MODE: ${{ github.event_name == 'schedule' && 'auto' || inputs.mode }}
           COUNT: ${{ inputs.count }}
         run: |
-          # 스크립트 파일 존재 여부 확인 후 실행
           if [ -f "scripts/issue_manager.py" ]; then
             python scripts/issue_manager.py
           else
-            echo "❌ scripts/issue_manager.py 파일을 찾을 수 없습니다."
+            echo "❌ Error: scripts/issue_manager.py 파일을 찾을 수 없습니다."
             exit 1
           fi
 
-      # ✅ [FIXED] Git Push 충돌 해결 로직 추가
-      - name: Commit and Push Changes safely
+      - name: Commit and Push Changes (Robust Sync)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
           # 변경 사항이 있는지 확인
           if [ -n "$(git status --porcelain)" ]; then
-            echo "Changes detected. Preparing to commit..."
-            
             git add .
-            git commit -m "Auto-update: Issue Report & Bulk Changes [skip ci]"
+            git commit -m "🤖 AI Ops: Auto-update report & status [skip ci]"
             
-            # --- 핵심 수정: 원격 변경 사항을 먼저 당겨옴 (Rebase) ---
-            echo "🔄 Pulling latest changes..."
-            git pull --rebase origin ${GITHUB_REF_NAME}
+            # --- [강력한 충돌 해결 로직] 5번까지 재시도 ---
+            n=0
+            until [ "$n" -ge 5 ]
+            do
+               echo "🔄 Pulling latest changes (Attempt $((n+1)))..."
+               git pull --rebase origin ${GITHUB_REF_NAME} && break
+               n=$((n+1))
+               sleep 5
+            done
             
-            # --- Push 실행 ---
             echo "🚀 Pushing to remote..."
             git push origin HEAD:${GITHUB_REF}
-            
             echo "✅ Successfully updated repository."
           else
             echo "ℹ️ No changes to commit."
           fi
-
-      - name: Upload Report Artifact
-        if: inputs.mode == 'report' || inputs.mode == 'all'
-        uses: actions/upload-artifact@v4
-        with:
-          name: issue-report-result
-          path: issue_report.csv
