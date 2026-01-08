@@ -1,4 +1,4 @@
-name: Ultimate Issue Manager
+name: Ultimate Issue Manager (Fixed)
 
 on:
   workflow_dispatch:
@@ -13,9 +13,9 @@ on:
           - update   # 대량 수정 (라벨링)
           - close    # 대량 닫기
           - report   # CSV 추출
-          - all      # 생성 -> 수정 -> 리포트 추출 (전체)
+          - all      # 전체 순차 실행
       count:
-        description: '실행 횟수 제한 (Loop Limit)'
+        description: '실행 횟수 제한'
         required: false
         default: '10'
 
@@ -23,12 +23,14 @@ jobs:
   manage-issues:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 레포지토리에 파일 업로드(Push) 권한
-      issues: write    # 이슈 수정 권한
+      contents: write  # Git Push 권한 필수
+      issues: write    # 이슈 수정 권한 필수
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 전체 히스토리를 가져와야 병합 시 오류가 적음
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -45,37 +47,44 @@ jobs:
           REPO_NAME: ${{ github.repository }}
           MODE: ${{ inputs.mode }}
           COUNT: ${{ inputs.count }}
-        # [중요] 사용자가 제공한 경로(scripts/)에 파일이 있다고 가정하고 실행
         run: |
+          # 스크립트 파일 존재 여부 확인 후 실행
           if [ -f "scripts/issue_manager.py" ]; then
             python scripts/issue_manager.py
           else
-            echo "❌ Error: scripts/issue_manager.py 파일을 찾을 수 없습니다."
-            echo "레포지토리의 scripts 폴더에 파일이 있는지 확인해주세요."
+            echo "❌ scripts/issue_manager.py 파일을 찾을 수 없습니다."
             exit 1
           fi
 
-      # [서버 업데이트/디렉토리 업로드] 
-      # 스크립트가 생성한 파일(예: issue_report.csv)이 있다면 레포지토리에 반영
-      - name: Commit and Push Changes (Server Update)
+      # ✅ [FIXED] Git Push 충돌 해결 로직 추가
+      - name: Commit and Push Changes safely
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # CSV 파일이 생성되었는지 확인
-          if [ -f "issue_report.csv" ]; then
-            git add issue_report.csv
-            git commit -m "Update issue report [skip ci]" || echo "No changes to commit"
-            git push
-            echo "✅ Server updated with new report."
+          # 변경 사항이 있는지 확인
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Changes detected. Preparing to commit..."
+            
+            git add .
+            git commit -m "Auto-update: Issue Report & Bulk Changes [skip ci]"
+            
+            # --- 핵심 수정: 원격 변경 사항을 먼저 당겨옴 (Rebase) ---
+            echo "🔄 Pulling latest changes..."
+            git pull --rebase origin ${GITHUB_REF_NAME}
+            
+            # --- Push 실행 ---
+            echo "🚀 Pushing to remote..."
+            git push origin HEAD:${GITHUB_REF}
+            
+            echo "✅ Successfully updated repository."
           else
-            echo "ℹ️ No report file generated to upload."
+            echo "ℹ️ No changes to commit."
           fi
 
-      # [아티팩트 업로드] 파일 다운로드 기능 제공
       - name: Upload Report Artifact
         if: inputs.mode == 'report' || inputs.mode == 'all'
         uses: actions/upload-artifact@v4
         with:
-          name: issue-report-csv
+          name: issue-report-result
           path: issue_report.csv
