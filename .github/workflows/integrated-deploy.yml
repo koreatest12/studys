@@ -1,4 +1,4 @@
-name: Mass Source Gen & Build Fix & Deploy
+name: Mass Java 17 Fix & Compiler Upgrade & Deploy
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     - cron: '*/10 * * * *'   # 10분 단위 대량 반복
   workflow_dispatch:
 
-# [전역 설정] 모든 단계에 UTF-8 인코딩 강제
+# [전역 설정] 인코딩 강제
 env:
   LANG: C.UTF-8
   LC_ALL: C.UTF-8
@@ -19,11 +19,11 @@ permissions:
   issues: write
 
 jobs:
-  mass-complete-deploy:
+  mass-compiler-fix:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. [용량] 디스크 정리 (30GB+ 확보)
+      # 1. [용량] 디스크 정리
       - name: Massive Disk Cleanup
         run: |
           echo "Cleaning up disk space..."
@@ -49,7 +49,7 @@ jobs:
           git config --global i18n.commitencoding utf-8
           git config --global i18n.logoutputencoding utf-8
 
-      # 4. [서비스] 필수 툴 설치 (Docker 충돌 방지됨)
+      # 4. [서비스] 필수 툴 설치
       - name: Mass Install Services
         run: |
           sudo apt-get update
@@ -64,39 +64,30 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # 6. [핵심] 소스 코드 & 리소스 & 설정 파일 대량 생성 (Empty JAR 해결)
-      - name: Mass Generate Sources & Configs
+      # 6. [핵심 수정] pom.xml 강제 덮어쓰기 (Java 5 에러 해결)
+      - name: Mass Generate Configs (Force Update)
         run: |
-          echo "Generating project structure..."
+          echo "Overwriting configuration files to fix compilation errors..."
           
-          # 1. 디렉토리 구조 대량 생성 (없으면 경고 발생하므로 강제 생성)
           mkdir -p src/main/java/com/example/demo
           mkdir -p src/main/resources
-          mkdir -p src/test/java
-          mkdir -p src/test/resources
           mkdir -p ~/.m2
           
-          # 2. [JAVA 소스] 메인 애플리케이션 파일 자동 생성 (No sources to compile 해결)
+          # 1. Java 소스 코드 생성 (없을 경우)
           if [ ! -f src/main/java/com/example/demo/DemoApplication.java ]; then
-            echo "Generating Java Source Code..."
             cat <<EOF > src/main/java/com/example/demo/DemoApplication.java
           package com.example.demo;
-          
           public class DemoApplication {
               public static void main(String[] args) {
-                  System.out.println("Mass Build Successful! Encoding: " + System.getProperty("file.encoding"));
+                  System.out.println("Java 17 Build Successful!");
               }
           }
           EOF
           fi
           
-          # 3. [리소스] 설정 파일 생성 (skip non existing resourceDirectory 해결)
-          touch src/main/resources/application.properties
-          
-          # 4. [POM] 인코딩 속성이 완벽히 포함된 pom.xml 생성
-          if [ ! -f pom.xml ]; then
-            echo "Generating pom.xml..."
-            cat <<EOF > pom.xml
+          # 2. [POM 수정] 컴파일러 버전을 17로 명시하여 에러 해결
+          # 기존 파일이 있어도 강제로 덮어씌웁니다.
+          cat <<EOF > pom.xml
           <project xmlns="http://maven.apache.org/POM/4.0.0" 
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
                    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -108,9 +99,10 @@ jobs:
             
             <properties>
               <java.version>17</java.version>
+              <maven.compiler.source>17</maven.compiler.source>
+              <maven.compiler.target>17</maven.compiler.target>
               <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
               <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-              <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
             </properties>
             
             <build>
@@ -133,7 +125,7 @@ jobs:
                     <encoding>UTF-8</encoding>
                   </configuration>
                 </plugin>
-                 <plugin>
+                <plugin>
                   <groupId>org.apache.maven.plugins</groupId>
                   <artifactId>maven-jar-plugin</artifactId>
                   <version>3.3.0</version>
@@ -149,9 +141,8 @@ jobs:
             </build>
           </project>
           EOF
-          fi
           
-          # 5. Dockerfile 생성
+          # 3. Dockerfile 생성
           cat <<EOF > Dockerfile
           FROM eclipse-temurin:17-jdk-alpine
           ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
@@ -163,14 +154,12 @@ jobs:
           
           # 권한 대량 부여
           sudo chmod -R 777 .
-          echo "Project structure generated successfully."
-          tree src
 
       # 7. [캐시] 의존성 미리 받기
       - name: Mass Create Cache Files
         run: mvn dependency:go-offline -B --file pom.xml
 
-      # 8. Maven 빌드 (소스가 있으므로 이제 컴파일됨)
+      # 8. Maven 빌드 (이제 Java 17로 컴파일됨)
       - name: Build with Maven
         run: mvn -B package --file pom.xml -DskipTests -Dfile.encoding=UTF-8
 
@@ -191,20 +180,19 @@ jobs:
           docker run -d --name my-mass-container -p 8080:8080 my-mass-app:latest
           docker ps -a
 
-      # 10. [Git] 생성된 소스 코드까지 모두 대량 푸시
+      # 10. [Git] 수정된 pom.xml 대량 푸시
       - name: Mass Git Push & Update
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           mkdir -p logs
-          echo "Build & Source Gen Success at $(date)" >> logs/deploy_log.txt
+          echo "Compiler Fixed at $(date)" >> logs/deploy_log.txt
           
-          # 생성된 src 폴더, pom.xml 등 모두 스테이징
           git add .
           
           if ! git diff --staged --quiet; then
-            git commit -m "Auto: Mass Source Gen & Build Fix [skip ci]"
+            git commit -m "Fix: Upgrade Java Compiler to 17 [skip ci]"
             echo "Changes committed."
           else
             echo "No changes."
