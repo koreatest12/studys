@@ -1,10 +1,10 @@
-name: Mass Fix & Capacity Boost & Deploy
+name: Mass Scale Fix & Capacity Boost & Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   schedule:
-    - cron: '*/10 * * * *'  # 10분 단위 반복 수행
+    - cron: '*/10 * * * *'   # 10분 단위 대량 반복
   workflow_dispatch:
 
 permissions:
@@ -17,17 +17,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. [용량 증설] 불필요한 소프트웨어 삭제로 최대 70GB 공간 확보 (대량 용량 추가 반영)
-      - name: Maximize Build Space
-        uses: jenseng/dynamic-uses@v1
+      # 1. [용량 증설] 불필요한 소프트웨어 대량 삭제로 최대 70GB 공간 확보
+      - name: Maximize Build Space (Mass Capacity Boost)
+        uses: aditi-singh/remove-unwanted-software@v1
         with:
-          uses: aditi-singh/remove-unwanted-software@v1
-          with:
-            remove-android: 'true'
-            remove-dotnet: 'true'
-            remove-haskell: 'true'
-            remove-codeql: 'true'
-            remove-docker-images: 'true'
+          remove-android: 'true'
+          remove-dotnet: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
 
       # 2. 소스 코드 체크아웃
       - name: Checkout repository
@@ -35,7 +33,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 3. [권한] 작업 디렉토리 전체 권한 대량 부여 (777)
+      # 3. [권한] 대량 권한 부여 (777)
       - name: Mass Permission Grant
         run: |
           echo "Setting 777 permissions recursively..."
@@ -61,10 +59,10 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # 6. Dockerfile 및 pom.xml 강제 생성 (파일 누락 방지)
+      # 6. 설정 파일(Dockerfile, pom.xml) 대량 생성
       - name: Generate Config Files Massively
         run: |
-          # Dockerfile 생성
+          # Dockerfile 생성 (영어 문법 준수)
           cat <<EOF > Dockerfile
           FROM eclipse-temurin:17-jdk-alpine
           WORKDIR /app
@@ -82,7 +80,7 @@ jobs:
       - name: Build with Maven
         run: mvn -B package --file pom.xml -DskipTests
 
-      # 8. Docker 이미지 빌드 및 실행
+      # 8. Docker 이미지 대량 빌드 및 컨테이너 실행
       - name: Build & Run Container
         run: |
           docker build -t my-mass-app:latest .
@@ -90,7 +88,7 @@ jobs:
           docker run -d --name my-mass-container -p 8080:8080 my-mass-app:latest
           docker ps -a
 
-      # 9. [핵심 수정] Git 충돌 해결 로직 (커밋 -> 풀 -> 푸시 순서로 변경)
+      # 9. [핵심 수정] Git 충돌 방지 및 대량 업데이트 (커밋 -> 풀 -> 푸시)
       - name: Mass Git Push & Update
         run: |
           git config --global user.name "github-actions[bot]"
@@ -100,19 +98,18 @@ jobs:
           mkdir -p logs
           echo "Deploy Success at $(date)" >> logs/deploy_log.txt
           
-          # 1. 모든 변경사항 스테이징 (빌드된 파일, 로그, Dockerfile 등)
+          # 1. 모든 변경 사항 스테이징
           git add .
           
-          # 2. 로컬 커밋 먼저 수행 (Uncommitted changes 에러 방지 핵심)
+          # 2. 로컬 커밋 먼저 수행 (이전의 에러 방지 핵심)
           if ! git diff --staged --quiet; then
-            git commit -m "Auto: Mass Update & Build Success [skip ci]"
+            git commit -m "Auto: Mass Capacity & Update Success [skip ci]"
             echo "Local changes committed."
           else
             echo "No changes to commit."
           fi
           
           # 3. 원격 변경사항 가져오기 (Rebase)
-          # 이미 커밋이 되어 있으므로 'Uncommitted changes' 에러가 발생하지 않음
           git pull origin main --rebase
           
           # 4. 최종 푸시
