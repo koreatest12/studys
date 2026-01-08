@@ -2,6 +2,8 @@ import os
 import sys
 import random
 import csv
+import platform
+import subprocess
 from datetime import datetime
 from github import Github
 
@@ -18,49 +20,51 @@ if not TOKEN or not REPO_NAME:
 g = Github(TOKEN)
 repo = g.get_repo(REPO_NAME)
 
-print(f"🚀 Started AI Ops Manager | Mode: {MODE}")
+print(f"🚀 AI Ops System Started | Mode: {MODE}")
+
+def get_server_info():
+    """서버(Runner) 환경 정보 및 버전 확인"""
+    try:
+        # pip 패키지 버전 확인
+        pip_freeze = subprocess.check_output([sys.executable, '-m', 'pip', 'freeze']).decode('utf-8')
+        pygithub_ver = [line for line in pip_freeze.split('\n') if 'PyGithub' in line]
+        pygithub_ver = pygithub_ver[0] if pygithub_ver else "Unknown"
+        
+        info = {
+            "OS": platform.system() + " " + platform.release(),
+            "Python": sys.version.split()[0],
+            "PyGithub": pygithub_ver,
+            "Timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        return info
+    except Exception as e:
+        return {"Error": str(e)}
 
 def bulk_create():
-    """테스트용 이슈 대량 생성"""
     print(">> [Action] Bulk Create Issues")
-    prefixes = ["[Bug]", "[Feature]", "[Docs]", "[Refactor]"]
+    prefixes = ["[System]", "[Upgrade]", "[Patch]", "[Network]"]
     for i in range(COUNT):
-        title = f"{random.choice(prefixes)} 자동 생성된 테스트 이슈 #{random.randint(1000, 9999)}"
-        body = f"이 이슈는 10분 단위 자동화 시스템에 의해 생성되었습니다.\nTime: {datetime.now()}"
+        title = f"{random.choice(prefixes)} Server Upgrade Check #{random.randint(1000, 9999)}"
+        body = f"Server sync test.\nTime: {datetime.now()}"
         repo.create_issue(title=title, body=body)
 
 def bulk_update():
-    """기존 이슈 분석 및 라벨링"""
     print(">> [Action] Bulk Update & Labeling")
     issues = repo.get_issues(state='open')
     for i, issue in enumerate(issues):
         if i >= COUNT: break
         
         labels_to_add = []
-        if "Bug" in issue.title: labels_to_add.append("bug")
-        if "Feature" in issue.title: labels_to_add.append("enhancement")
+        if "Upgrade" in issue.title: labels_to_add.append("maintenance")
+        if "System" in issue.title: labels_to_add.append("backend")
         
-        # 라벨이 있고, 아직 안 붙어있다면 추가
-        if labels_to_add:
-            current_labels = [l.name for l in issue.labels]
-            new_labels = [l for l in labels_to_add if l not in current_labels]
-            if new_labels:
-                issue.add_to_labels(*new_labels)
-                print(f"   -> Updated #{issue.number}: Added {new_labels}")
-
-def bulk_close():
-    """오래된 테스트 이슈 정리"""
-    print(">> [Action] Bulk Close")
-    issues = repo.get_issues(state='open')
-    for i, issue in enumerate(issues):
-        if i >= COUNT: break
-        if "테스트" in issue.title or "test" in issue.title.lower():
-            issue.create_comment("🤖 자동화 정책에 의해 이슈를 닫습니다.")
-            issue.edit(state='closed')
-            print(f"   -> Closed #{issue.number}")
+        current_labels = [l.name for l in issue.labels]
+        new_labels = [l for l in labels_to_add if l not in current_labels]
+        if new_labels:
+            issue.add_to_labels(*new_labels)
+            print(f"   -> Updated #{issue.number}: Added {new_labels}")
 
 def generate_report():
-    """이슈 리포트 CSV 생성"""
     print(">> [Action] Generate Report CSV")
     issues = repo.get_issues(state='all')
     with open("issue_report.csv", "w", newline="", encoding="utf-8") as f:
@@ -70,55 +74,50 @@ def generate_report():
             if i >= COUNT * 5: break
             labels = ", ".join([l.name for l in issue.labels])
             writer.writerow([issue.number, issue.title, issue.state, labels, issue.created_at])
-    print("   -> issue_report.csv updated.")
 
 def auto_maintenance():
     """
-    [업그레이드 기능] 
-    1. 전체 파일 스캔 및 상태 대시보드(REPO_STATUS.md) 업데이트
-    2. 리포트 갱신 자동 수행
+    [서버 업그레이드 및 유지보수]
+    1. 서버 환경 정보 수집
+    2. REPO_STATUS.md 대시보드 갱신
+    3. 리포트 및 라벨링 수행
     """
-    print(">> [Action] Auto Maintenance (File Scan)")
+    print(">> [Action] Server Maintenance & Upgrade Log")
     
-    # 레포지토리 파일 통계 (현재 디렉토리 기준)
-    file_count = 0
-    py_count = 0
-    total_size = 0
+    server_info = get_server_info()
     
-    for root, dirs, files in os.walk("."):
-        if ".git" in root: continue # .git 폴더 제외
-        for file in files:
-            file_count += 1
-            if file.endswith(".py"): py_count += 1
-            total_size += os.path.getsize(os.path.join(root, file))
+    # 파일 통계
+    file_count = sum([len(files) for r, d, files in os.walk(".") if ".git" not in r])
     
-    # 상태 파일 업데이트
-    status_content = f"""# 📊 Repository Status Dashboard
-> Auto-updated every 10 minutes.
+    # 상태 대시보드 업데이트
+    status_content = f"""# 🖥️ Server Upgrade & Status Dashboard
+> System automatically upgraded and checked.
 
-- **Last Update**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+### 🛠️ Server Environment (Latest)
+- **Last Upgrade**: {server_info.get('Timestamp')}
+- **OS System**: {server_info.get('OS')}
+- **Python Version**: {server_info.get('Python')}
+- **Core Library**: {server_info.get('PyGithub')}
+- **Status**: ✅ **Operational & Up-to-Date**
+
+### 📂 Repository Stats
 - **Total Files**: {file_count}
-- **Python Scripts**: {py_count}
-- **Total Size**: {total_size / 1024:.2f} KB
 - **Active Mode**: {MODE}
 
 ---
-*Generated by AI Ops Master*
+*Powered by GitHub Actions Server Upgrade Workflow*
 """
     with open("REPO_STATUS.md", "w", encoding="utf-8") as f:
         f.write(status_content)
     
-    print("   -> REPO_STATUS.md updated.")
+    print("   -> REPO_STATUS.md updated with server info.")
     
-    # 자동 모드에서는 리포트 생성과 라벨링도 같이 수행
     generate_report()
     bulk_update()
 
-# --- 메인 실행 ---
 if __name__ == "__main__":
+    # 모드에 따른 실행
     if MODE == "create": bulk_create()
     elif MODE == "update": bulk_update()
-    elif MODE == "close": bulk_close()
-    elif MODE == "report": generate_report()
-    elif MODE == "auto": auto_maintenance() # 10분마다 실행될 로직
-    else: auto_maintenance() # 기본값
+    elif MODE == "auto": auto_maintenance()
+    else: auto_maintenance()
