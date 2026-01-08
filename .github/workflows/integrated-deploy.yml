@@ -1,4 +1,4 @@
-name: Mass Deploy & Disk Cleanup Fix
+name: Mass JDK Install & Service Auto-Fix & Deploy
 
 on:
   push:
@@ -13,24 +13,19 @@ permissions:
   issues: write
 
 jobs:
-  mass-deploy-final:
+  mass-service-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. [용량 증설] 외부 액션 없이 직접 대량 삭제 (가장 확실한 방법)
-      - name: Massive Disk Cleanup (Manual)
+      # 1. [용량] 수동 대량 삭제로 30GB+ 공간 확보 (외부 액션 미사용)
+      - name: Massive Disk Cleanup
         run: |
-          echo "Starting massive disk cleanup..."
-          # 안드로이드 SDK, 닷넷, 하스켈 등 대용량 미사용 툴 삭제
+          echo "Cleaning up disk space..."
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/share/boost
           sudo rm -rf /opt/ghc
-          
-          # Docker 이미지 정리 (공간 확보)
+          sudo rm -rf /usr/local/share/boost
           sudo docker image prune --all --force
-          
-          echo "Disk space check:"
           df -h
 
       # 2. 소스 코드 체크아웃
@@ -39,36 +34,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 3. [권한] 대량 권한 부여 (777)
-      - name: Mass Permission Grant
+      # 3. [JDK & 서비스] 대량 추가 설치 (요청사항 반영)
+      # 시스템 레벨에서 JDK와 필수 서비스를 강제로 설치하여 경고 방지
+      - name: Mass Install JDK & Services
         run: |
-          echo "Setting 777 permissions recursively..."
-          sudo chmod -R 777 .
-          sudo chown -R $USER:$USER .
-
-      # 4. 서버 환경 설정 및 유틸리티 설치
-      - name: Setup Server & Docker
-        run: |
+          echo "Installing System Services & JDK..."
           sudo apt-get update
-          sudo apt-get install -y curl wget git unzip tree acl
           
-          # Docker 소켓 권한 강제 부여
-          if [ -e /var/run/docker.sock ]; then
-            sudo chmod 666 /var/run/docker.sock
-          fi
+          # JDK 17, Maven, Docker, 유틸리티 대량 설치
+          sudo apt-get install -y openjdk-17-jdk maven docker.io curl wget git unzip tree acl build-essential
+          
+          # 설치 확인 (경고 메시지 발생 시 로그 확인용)
+          java -version
+          mvn -version
+          docker --version
 
-      # 5. Java 17 설정
-      - name: Set up JDK 17
+      # 4. [JDK 설정] Actions 환경 JDK 설정 (이중 안전장치)
+      - name: Set up JDK 17 (Action Level)
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'maven'
 
-      # 6. 설정 파일(Dockerfile, pom.xml) 대량/강제 생성
-      - name: Generate Config Files Massively
+      # 5. [자가 치유] 경고/에러 방지용 대량 파일 생성 및 권한 복구
+      # 파일이 없거나 권한이 없으면 경고가 뜨므로 미리 강제 생성
+      - name: Auto-Fix & Mass Generate Configs
         run: |
-          # Dockerfile 생성 (영어 문법 준수)
+          echo "Running Self-Healing Script..."
+          
+          # 1. 권한 강제 복구
+          sudo chmod -R 777 .
+          
+          # 2. Dockerfile 강제 생성 (경고 방지)
           cat <<EOF > Dockerfile
           FROM eclipse-temurin:17-jdk-alpine
           WORKDIR /app
@@ -77,49 +75,59 @@ jobs:
           ENTRYPOINT ["java", "-jar", "app.jar"]
           EOF
           
-          # pom.xml 생성 (파일이 없을 경우에만)
+          # 3. pom.xml 강제 생성 (경고 방지)
           if [ ! -f pom.xml ]; then
+            echo "pom.xml not found. Generating default..."
             echo '<project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>demo</artifactId><version>0.0.1-SNAPSHOT</version><properties><java.version>17</java.version></properties></project>' > pom.xml
           fi
+          
+          # 4. 로그 디렉토리 미리 생성
+          mkdir -p logs reports
+          touch logs/app.log
 
-      # 7. Maven 빌드
+      # 6. Maven 빌드 (실패 시 강제 성공 처리 옵션 추가 가능하지만 일단 정석대로 수행)
       - name: Build with Maven
         run: mvn -B package --file pom.xml -DskipTests
 
-      # 8. Docker 이미지 대량 빌드 및 컨테이너 실행
+      # 7. Docker 이미지 대량 빌드 및 실행
       - name: Build & Run Container
         run: |
-          docker build -t my-mass-app:latest .
-          # 기존 컨테이너가 있다면 삭제 후 재생성
+          # 기존 컨테이너가 꼬여서 경고 발생할 경우를 대비해 강제 삭제
           docker rm -f my-mass-container || true
+          
+          # 이미지 빌드
+          docker build -t my-mass-app:latest .
+          
+          # 컨테이너 실행
           docker run -d --name my-mass-container -p 8080:8080 my-mass-app:latest
+          
+          # 상태 확인
           docker ps -a
 
-      # 9. [Git 충돌 방지] 커밋 -> 풀 -> 푸시 (순서 엄수)
+      # 8. [Git 충돌 해결] 커밋 -> 풀 -> 푸시 (무결성 보장)
       - name: Mass Git Push & Update
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 로그 생성
-          mkdir -p logs
-          echo "Deploy Success at $(date)" >> logs/deploy_log.txt
+          # 실행 로그 기록
+          echo "Mass Update executed at $(date)" >> logs/deploy_log.txt
           
-          # 1. 파일 스테이징
+          # 스테이징
           git add .
           
-          # 2. 로컬 커밋 먼저 수행 (이 단계가 에러 방지의 핵심)
+          # 로컬 커밋 (에러 방지)
           if ! git diff --staged --quiet; then
-            git commit -m "Auto: Mass Cleanup & Update Success [skip ci]"
-            echo "Local changes committed."
+            git commit -m "Auto: Mass JDK Install & Service Fix [skip ci]"
+            echo "Changes committed locally."
           else
-            echo "No changes to commit."
+            echo "No changes needed."
           fi
           
-          # 3. 원격 변경사항 가져오기 (Rebase)
+          # 원격 가져오기
           git pull origin main --rebase
           
-          # 4. 최종 푸시
+          # 푸시
           git push origin main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
