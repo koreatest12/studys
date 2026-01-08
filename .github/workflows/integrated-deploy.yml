@@ -1,4 +1,4 @@
-name: Mass Encoding Fix & XML/Cache Gen & Deploy
+name: Mass Source Gen & Build Fix & Deploy
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     - cron: '*/10 * * * *'   # 10분 단위 대량 반복
   workflow_dispatch:
 
-# [인코딩 핵심 1] 워크플로우 전체에 UTF-8 강제 적용
+# [전역 설정] 모든 단계에 UTF-8 인코딩 강제
 env:
   LANG: C.UTF-8
   LC_ALL: C.UTF-8
@@ -19,7 +19,7 @@ permissions:
   issues: write
 
 jobs:
-  mass-encoding-deploy:
+  mass-complete-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,7 +30,6 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
           
           if command -v docker &> /dev/null; then
             sudo docker image prune --all --force
@@ -43,25 +42,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 3. [인코딩 핵심 2] Git 한글 깨짐 방지 설정
-      - name: Fix Git Encoding & Quoting
+      # 3. [인코딩] Git 설정
+      - name: Fix Git Encoding
         run: |
           git config --global core.quotepath false
           git config --global i18n.commitencoding utf-8
           git config --global i18n.logoutputencoding utf-8
-          echo "Git encoding fixed for Korean characters."
 
-      # 4. [서비스] 필수 유틸리티 설치 (Docker 충돌 방지됨)
-      - name: Mass Install JDK & Services
+      # 4. [서비스] 필수 툴 설치 (Docker 충돌 방지됨)
+      - name: Mass Install Services
         run: |
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk maven curl wget git unzip tree acl build-essential locales
-          
-          # 로케일 생성 (UTF-8)
           sudo locale-gen en_US.UTF-8
-          sudo update-locale LANG=en_US.UTF-8
 
-      # 5. [JDK] 액션 환경 설정 및 캐시
+      # 5. [JDK] 액션 환경 설정
       - name: Set up JDK 17 with Cache
         uses: actions/setup-java@v4
         with:
@@ -69,60 +64,113 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # 6. [설정 파일] Maven/Docker 파일 대량 생성 (인코딩 옵션 주입)
-      - name: Mass Generate Configs (Encoding Inject)
+      # 6. [핵심] 소스 코드 & 리소스 & 설정 파일 대량 생성 (Empty JAR 해결)
+      - name: Mass Generate Sources & Configs
         run: |
+          echo "Generating project structure..."
+          
+          # 1. 디렉토리 구조 대량 생성 (없으면 경고 발생하므로 강제 생성)
+          mkdir -p src/main/java/com/example/demo
+          mkdir -p src/main/resources
+          mkdir -p src/test/java
+          mkdir -p src/test/resources
           mkdir -p ~/.m2
           
-          # 1. settings.xml
-          cat <<EOF > ~/.m2/settings.xml
-          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
-            <interactiveMode>false</interactiveMode>
-          </settings>
-          EOF
+          # 2. [JAVA 소스] 메인 애플리케이션 파일 자동 생성 (No sources to compile 해결)
+          if [ ! -f src/main/java/com/example/demo/DemoApplication.java ]; then
+            echo "Generating Java Source Code..."
+            cat <<EOF > src/main/java/com/example/demo/DemoApplication.java
+          package com.example.demo;
           
-          # 2. pom.xml 생성 (인코딩 속성 대량 추가)
+          public class DemoApplication {
+              public static void main(String[] args) {
+                  System.out.println("Mass Build Successful! Encoding: " + System.getProperty("file.encoding"));
+              }
+          }
+          EOF
+          fi
+          
+          # 3. [리소스] 설정 파일 생성 (skip non existing resourceDirectory 해결)
+          touch src/main/resources/application.properties
+          
+          # 4. [POM] 인코딩 속성이 완벽히 포함된 pom.xml 생성
           if [ ! -f pom.xml ]; then
-            echo "Generating pom.xml with encoding properties..."
+            echo "Generating pom.xml..."
             cat <<EOF > pom.xml
-          <project xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+          <project xmlns="http://maven.apache.org/POM/4.0.0" 
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
             <modelVersion>4.0.0</modelVersion>
             <groupId>com.example</groupId>
             <artifactId>demo</artifactId>
             <version>0.0.1-SNAPSHOT</version>
+            <packaging>jar</packaging>
+            
             <properties>
               <java.version>17</java.version>
               <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
               <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
               <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
             </properties>
+            
+            <build>
+              <plugins>
+                <plugin>
+                  <groupId>org.apache.maven.plugins</groupId>
+                  <artifactId>maven-compiler-plugin</artifactId>
+                  <version>3.11.0</version>
+                  <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                    <encoding>UTF-8</encoding>
+                  </configuration>
+                </plugin>
+                <plugin>
+                  <groupId>org.apache.maven.plugins</groupId>
+                  <artifactId>maven-resources-plugin</artifactId>
+                  <version>3.3.1</version>
+                  <configuration>
+                    <encoding>UTF-8</encoding>
+                  </configuration>
+                </plugin>
+                 <plugin>
+                  <groupId>org.apache.maven.plugins</groupId>
+                  <artifactId>maven-jar-plugin</artifactId>
+                  <version>3.3.0</version>
+                  <configuration>
+                    <archive>
+                      <manifest>
+                        <mainClass>com.example.demo.DemoApplication</mainClass>
+                      </manifest>
+                    </archive>
+                  </configuration>
+                </plugin>
+              </plugins>
+            </build>
           </project>
           EOF
           fi
           
-          # 3. Dockerfile 생성 (컨테이너 내부 인코딩 설정 추가)
+          # 5. Dockerfile 생성
           cat <<EOF > Dockerfile
           FROM eclipse-temurin:17-jdk-alpine
-          
-          # 컨테이너 로케일 설정
-          ENV LANG=C.UTF-8 \
-              LC_ALL=C.UTF-8
-              
+          ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
           WORKDIR /app
           COPY target/*.jar app.jar
           RUN mkdir -p /app/logs /app/data && chmod -R 777 /app
-          
-          # JVM 실행 시 UTF-8 강제
-          ENTRYPOINT ["java", "-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8", "-jar", "app.jar"]
+          ENTRYPOINT ["java", "-Dfile.encoding=UTF-8", "-jar", "app.jar"]
           EOF
           
+          # 권한 대량 부여
           sudo chmod -R 777 .
+          echo "Project structure generated successfully."
+          tree src
 
-      # 7. [캐시] 의존성 미리 받기 (Offline 모드)
+      # 7. [캐시] 의존성 미리 받기
       - name: Mass Create Cache Files
         run: mvn dependency:go-offline -B --file pom.xml
 
-      # 8. Maven 빌드 (인코딩 인수 명시)
+      # 8. Maven 빌드 (소스가 있으므로 이제 컴파일됨)
       - name: Build with Maven
         run: mvn -B package --file pom.xml -DskipTests -Dfile.encoding=UTF-8
 
@@ -143,19 +191,20 @@ jobs:
           docker run -d --name my-mass-container -p 8080:8080 my-mass-app:latest
           docker ps -a
 
-      # 10. [Git] 대량 푸시 (UTF-8 로그 포함)
+      # 10. [Git] 생성된 소스 코드까지 모두 대량 푸시
       - name: Mass Git Push & Update
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           mkdir -p logs
-          echo "Deploy Success (Encoding Fixed) at $(date)" >> logs/deploy_log.txt
+          echo "Build & Source Gen Success at $(date)" >> logs/deploy_log.txt
           
+          # 생성된 src 폴더, pom.xml 등 모두 스테이징
           git add .
           
           if ! git diff --staged --quiet; then
-            git commit -m "Auto: Mass Encoding Fix & Deploy [skip ci]"
+            git commit -m "Auto: Mass Source Gen & Build Fix [skip ci]"
             echo "Changes committed."
           else
             echo "No changes."
