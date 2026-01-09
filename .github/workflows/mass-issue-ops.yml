@@ -15,7 +15,9 @@ on:
           - create
           - update
       count:
+        description: '작업 수량'
         default: '10'
+        required: false
 
 jobs:
   server-ops:
@@ -30,8 +32,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # [서버 업그레이드 기능 추가]
-      # 시스템 패키지와 파이썬 라이브러리를 최신으로 강제 업데이트
+      # [서버 업그레이드 기능]
       - name: 🔥 Upgrade Server Environment
         run: |
           echo "Checking for system updates..."
@@ -47,8 +48,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
+          # 스케줄 실행 시 'auto', 수동 실행 시 입력값
           MODE: ${{ github.event_name == 'schedule' && 'auto' || inputs.mode }}
-          COUNT: ${{ inputs.count }}
+          # [수정됨] 스케줄 실행 시 inputs가 없으므로 '10' 기본값 강제 지정, 수동 실행 시 입력값
+          COUNT: ${{ github.event_name == 'schedule' && '10' || inputs.count }}
         run: |
           if [ -f "scripts/issue_manager.py" ]; then
             python scripts/issue_manager.py
