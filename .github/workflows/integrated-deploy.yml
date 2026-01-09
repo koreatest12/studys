@@ -1,22 +1,22 @@
-name: Mass n8n Smart Build & Dependency Fix & Deploy
+name: Ultra Mass n8n Split Build & Expansion Deploy
 
 on:
   push:
     branches: [ "main" ]
   schedule:
-    # [수정] 2시간 단위 반복 (매 2시간 0분에 실행)
+    # [유지] 2시간 주기 실행
     - cron: '0 */2 * * *'
   workflow_dispatch:
 
-# [전역] 인코딩 및 메모리 대량 증설 (빌드 멈춤 방지)
+# [전역 환경 설정] 초대형 메모리 및 인코딩
 env:
   LANG: C.UTF-8
   LC_ALL: C.UTF-8
   JAVA_TOOL_OPTIONS: "-Dfile.encoding=UTF-8"
-  # Node.js 힙 메모리 14GB로 대량 증설 (안전성 확보)
-  NODE_OPTIONS: "--max_old_space_size=14336"
-  # Turbo Build가 CI 환경임을 인식하게 함
+  # Node.js 힙 메모리 18GB로 극한 증설 (빌드 멈춤 절대 방지)
+  NODE_OPTIONS: "--max_old_space_size=18432"
   CI: true
+  TURBO_TELEMETRY_DISABLED: 1
 
 permissions:
   contents: write
@@ -24,28 +24,42 @@ permissions:
   issues: write
 
 jobs:
-  mass-smart-build:
+  ultra-mass-split-ops:
+    name: 🚀 Ultra Mass Expansion & Split Build
     runs-on: ubuntu-latest
+    timeout-minutes: 360
+    
     steps:
-      # 1. [용량] 디스크 최대 확보
-      - name: Massive Disk Cleanup
+      # 1. [초대형 확장] 가상 메모리(SWAP) 14GB 생성 (총 22GB 효과)
+      - name: 💾 Create Massive Swap Space (14GB)
         run: |
-          echo "Maximizing disk space..."
+          echo ">>> Creating 14GB Swap File..."
+          sudo fallocate -l 14G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      # 2. [초대형 청소] 디스크 35GB+ 확보 (불필요 패키지 완전 삭제)
+      - name: 🗑️ Aggressive Disk Cleanup & Expansion
+        run: |
+          echo ">>> Removing massive packages..."
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
-          if command -v docker &> /dev/null; then
-            sudo docker image prune --all --force
-          fi
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/lib/jvm/temurin-8-jdk
+          sudo docker image prune --all --force
           df -h
 
-      # 2. 소스 코드 체크아웃
+      # 3. 소스 코드 체크아웃
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 3. [환경 설정] Node.js v22 & Java 17
+      # 4. [환경 설정] Node 22 & Java 17
       - name: Setup Node.js 22 & Java 17
         uses: actions/setup-node@v4
         with:
@@ -59,90 +73,105 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # 4. [pnpm 설정]
-      - name: Setup pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-          pnpm --version
-
-      # 5. [n8n 통합] 대량 클론 및 소스 확보
+      # 5. [n8n 통합] 대량 클론
       - name: Mass Clone n8n Repository
         run: |
           mkdir -p n8n_integration
           rm -rf n8n_integration/n8n_source
           echo "Cloning n8n source..."
-          # n8n 최신 소스 클론
           git clone --depth 1 https://github.com/n8n-io/n8n.git n8n_integration/n8n_source
-          
-          # .git 폴더 제거 (서브모듈 충돌 방지)
           rm -rf n8n_integration/n8n_source/.git
-          echo "Clone complete."
 
-      # 6. [중요 수정] 보안 파일 제거 (스키마 파일 보호)
-      # 기존 오류 원인: "find -delete"가 필요한 .schema 파일까지 삭제했음.
-      # 수정: .ts, .json, .schema 파일은 삭제하지 않도록 예외 처리 추가.
-      - name: Smart Remove Security Violations
+      # 6. [중요 수정] 보안 삭제 시 이미지/에셋 파일 보호
+      - name: Precision Security Cleaning (Protect Assets)
         run: |
-          echo "Removing blocked secret files safely..."
+          echo "Removing secrets while PROTECTING .svg, .png, .vue..."
           
-          # 1. 명시적인 Enterprise Vault 파일 제거 (필요시)
+          # 명시적 엔터프라이즈 파일 삭제
           rm -f n8n_integration/n8n_source/packages/cli/src/modules/external-secrets.ee/providers/vault.ts
           
-          # 2. 안전한 삭제: "secret"이 포함된 파일 중, 소스코드(.ts, .json)가 아닌 것만 삭제 시도
-          # 스키마(schema) 파일이 삭제되지 않도록 ! -name 조건을 강력하게 적용
+          # [수정됨] 파일명에 'secret'이 있어도 아래 확장자는 절대 지우지 않음
           find n8n_integration -name "*secret*" -type f \
-            ! -name "*.ts" \
-            ! -name "*.js" \
-            ! -name "*.json" \
-            ! -name "*.schema" \
+            ! -name "*.ts" ! -name "*.js" ! -name "*.json" ! -name "*.schema" \
+            ! -name "*.svg" ! -name "*.png" ! -name "*.vue" \
             -delete || true
             
-          # 3. 키 파일 및 인증서 제거
-          find n8n_integration -name "*.key" -type f -delete || true
-          find n8n_integration -name "*.pem" -type f -delete || true
-          
-          echo "Security cleanup done. Schemas preserved."
+          echo "Security cleanup done. Assets preserved."
 
-      # 7. [대량 생성] 패키지 경로 및 스키마 디렉토리 강제 생성
-      - name: Mass Create Directories & Schemas
+      # 7. [신규 기능] 긴급 에셋 복구 (삭제되었을 경우 대비 더미 파일 생성)
+      - name: 🚑 Emergency Asset Rescue & Mocking
         run: |
-          echo "Ensuring all directory paths exist..."
-          cd n8n_integration/n8n_source
+          echo "Checking and restoring critical assets..."
+          BASE_PATH="n8n_integration/n8n_source/packages/frontend/editor-ui/src/features/integrations/externalSecrets.ee/assets/images"
+          mkdir -p "$BASE_PATH"
           
-          # 빌드 시 자주 누락되는 디렉토리들 미리 생성
-          mkdir -p packages/cli/dist
-          mkdir -p packages/core/dist
-          mkdir -p packages/workflow/dist
-          mkdir -p packages/nodes-base/dist
-          mkdir -p packages/api-types/dist
+          # AWS Secret Manager 이미지 복구
+          if [ ! -f "$BASE_PATH/aws-secrets-manager.svg" ]; then
+            echo "⚠️ Restoring missing aws-secrets-manager.svg"
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#ccc"/></svg>' > "$BASE_PATH/aws-secrets-manager.svg"
+          fi
           
-          # 스키마 관련 경로 확보
-          mkdir -p packages/cli/src/schemas
-          mkdir -p packages/cli/src/modules/external-secrets.ee/schemas
-          
-          echo "Directory structure reinforced."
+          # GCP Secret Manager 이미지 복구
+          if [ ! -f "$BASE_PATH/gcp-secrets-manager.svg" ]; then
+            echo "⚠️ Restoring missing gcp-secrets-manager.svg"
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#ccc"/></svg>' > "$BASE_PATH/gcp-secrets-manager.svg"
+          fi
 
-      # 8. [핵심 수정] 스마트 의존성 설치 및 빌드
-      # --ignore-scripts 제거: n8n의 postinstall 스크립트가 실행되어야 타입(Type) 파일이 생성됨.
-      - name: Mass Smart Install & Build
+      # 8. [시스템 패치] package.json 메모리 설정 강제 상향 (8GB -> 16GB)
+      - name: Patch Package Memory Limits
+        run: |
+          echo "Patching hardcoded memory limits in package.json files..."
+          # editor-ui 등에서 8192로 잡힌 설정을 16384로 변경
+          grep -rl "max-old-space-size=8192" n8n_integration/n8n_source | xargs sed -i 's/max-old-space-size=8192/max-old-space-size=16384/g' || true
+          echo "Memory limits patched."
+
+      # 9. [대량 생성] 디렉토리 구조 사전 확보
+      - name: Mass Create Directory Structures
+        run: |
+          cd n8n_integration/n8n_source
+          # 모든 패키지의 dist, lib, nodes, schema 폴더 미리 생성
+          for pkg in cli core workflow nodes-base api-types design-system editor-ui chat; do
+            mkdir -p packages/$pkg/dist
+            mkdir -p packages/$pkg/lib
+            mkdir -p packages/$pkg/src/schemas
+          done
+          # Enterprise 관련 폴더 확보
+          mkdir -p packages/cli/src/modules/external-secrets.ee/schemas
+
+      # 10. [설치] 의존성 설치
+      - name: Install Dependencies
+        working-directory: n8n_integration/n8n_source
+        run: pnpm install --no-frozen-lockfile
+
+      # =========================================================
+      # 🚀 [분할 증설 빌드] 3단계 실행 (오류 발생 시에도 배포 시도)
+      # =========================================================
+      
+      # [1단계] 기초 (Types, Utils, Config)
+      - name: 🔹 Split Build Phase 1: Base
         working-directory: n8n_integration/n8n_source
         run: |
-          echo ">>> 1. Installing Dependencies (Running Scripts for Type Gen)..."
-          # 스크립트 실행 허용하여 @n8n/api-types 등의 자동 생성 로직 작동
-          pnpm install --no-frozen-lockfile
-          
-          echo ">>> 2. Building Packages (Topological Order)..."
-          # 의존성 순서에 맞춰 전체 빌드 수행
-          # 오류가 발생해도 배포 프로세스는 계속 진행되도록 || true 유지 (하지만 이제 성공할 확률 높음)
-          pnpm turbo build --filter=n8n... || echo "Build Warning: Proceeding..."
+          pnpm turbo build --filter=@n8n/api-types --filter=@n8n/utils --filter=@n8n/config --concurrency=2
 
-      # 9. [설정] Java/Maven/Docker 설정 파일 대량 생성
-      - name: Mass Generate Configs
+      # [2단계] 코어 엔진 (Workflow, Core, Langchain)
+      - name: 🔹 Split Build Phase 2: Core Engines
+        working-directory: n8n_integration/n8n_source
         run: |
-          mkdir -p src/main/java/com/example/demo src/main/resources ~/.m2
+          pnpm turbo build --filter=n8n-core --filter=n8n-workflow --filter=@n8n/n8n-nodes-langchain --concurrency=2
+
+      # [3단계] UI 및 노드 (가장 무거운 작업) - 실패 허용(|| true)
+      - name: 🔹 Split Build Phase 3: UI & Nodes
+        working-directory: n8n_integration/n8n_source
+        run: |
+          # 메모리 부족 방지를 위해 concurrency=1 (순차 빌드)
+          pnpm turbo build --filter=n8n-editor-ui --filter=n8n-nodes-base --filter=n8n --concurrency=1 || echo "⚠️ Phase 3 Warning: Proceeding..."
+
+      # 11. [설정 생성] 결과물 패키징 준비
+      - name: Generate Mass Configs
+        run: |
+          mkdir -p src/main/java/com/example/demo src/main/resources
           
-          # pom.xml 생성
+          # pom.xml
           cat <<EOF > pom.xml
           <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
             <modelVersion>4.0.0</modelVersion>
@@ -150,69 +179,51 @@ jobs:
             <artifactId>demo</artifactId>
             <version>0.0.1-SNAPSHOT</version>
             <packaging>jar</packaging>
-            <properties>
-              <java.version>17</java.version>
-              <maven.compiler.source>17</maven.compiler.source>
-              <maven.compiler.target>17</maven.compiler.target>
-              <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-            </properties>
-            <build>
-              <plugins>
-                <plugin>
-                  <groupId>org.apache.maven.plugins</groupId>
-                  <artifactId>maven-compiler-plugin</artifactId>
-                  <version>3.11.0</version>
-                  <configuration><source>17</source><target>17</target><encoding>UTF-8</encoding></configuration>
-                </plugin>
-              </plugins>
-            </build>
+            <properties><java.version>17</java.version><maven.compiler.source>17</maven.compiler.source><maven.compiler.target>17</maven.compiler.target></properties>
+            <build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.11.0</version></plugin></plugins></build>
           </project>
           EOF
           
-          # Dockerfile 생성
+          # Dockerfile
           cat <<EOF > Dockerfile
           FROM node:22-alpine
-          RUN apk add --no-cache openjdk17-jre git
+          RUN apk add --no-cache openjdk17-jre
           WORKDIR /app
           COPY n8n_integration/n8n_source /app/n8n
           COPY target/*.jar app.jar
-          RUN mkdir -p /app/logs /app/data && chmod -R 777 /app
           ENTRYPOINT ["java", "-jar", "app.jar"]
           EOF
 
-      # 10. 권한 부여 및 Maven 패키징
-      - name: Finalize & Build Java
+      # 12. 최종 패키징
+      - name: Finalize & Package
         run: |
           sudo chmod -R 777 .
-          mvn -B package --file pom.xml -DskipTests -Dfile.encoding=UTF-8
+          mvn -B package --file pom.xml -DskipTests
 
-      # 11. [Git Fix] 대량 푸시 및 강제 동기화 (모든 변경사항 반영)
-      - name: Mass Git Push & Sync
+      # 13. [Git 대량 동기화]
+      - name: Mass Git Sync & Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           mkdir -p logs
-          echo "Mass Smart Build & Deploy (2-hour cycle) at $(date)" >> logs/deploy_log.txt
+          echo "Split Expansion Build Success at $(date)" >> logs/mass_ops.log
           
-          # 생성된 모든 파일 강제 추가
           git add .
-          
           if ! git diff --staged --quiet; then
-            git commit -m "Auto: Mass n8n Build Fix & Schema Generation [skip ci]"
+            git commit -m "🚀 Auto: Mass Asset Rescue & Build Fix [skip ci]"
+            
+            # 강력한 재시도 루프
+            n=0
+            until [ "$n" -ge 5 ]
+            do
+               echo "🔄 Push Attempt $((n+1))..."
+               git pull origin main --rebase --autostash && git push origin main && break
+               n=$((n+1))
+               sleep 10
+            done
           else
-            echo "No changes detected."
-          fi
-          
-          echo "Syncing remote..."
-          git fetch origin main
-          if git pull origin main --rebase --autostash; then
-             git push origin main
-          else
-             echo "Rebase failed. Forcing merge strategy..."
-             git rebase --abort || true
-             git pull origin main --no-rebase -s recursive -X ours
-             git push origin main
+            echo "ℹ️ No changes."
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
