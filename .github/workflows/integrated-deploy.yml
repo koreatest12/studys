@@ -148,19 +148,19 @@ jobs:
       # =========================================================
       
       # [1단계] 기초 (Types, Utils, Config)
-      - name: 🔹 Split Build Phase 1: Base
+      - name: 🔹 Split Build Phase 1:Base
         working-directory: n8n_integration/n8n_source
         run: |
           pnpm turbo build --filter=@n8n/api-types --filter=@n8n/utils --filter=@n8n/config --concurrency=2
 
       # [2단계] 코어 엔진 (Workflow, Core, Langchain)
-      - name: 🔹 Split Build Phase 2: Core Engines
+      - name: 🔹 Split Build Phase 2:Core Engines
         working-directory: n8n_integration/n8n_source
         run: |
           pnpm turbo build --filter=n8n-core --filter=n8n-workflow --filter=@n8n/n8n-nodes-langchain --concurrency=2
 
       # [3단계] UI 및 노드 (가장 무거운 작업) - 실패 허용(|| true)
-      - name: 🔹 Split Build Phase 3: UI & Nodes
+      - name: 🔹 Split Build Phase 3:UI & Nodes
         working-directory: n8n_integration/n8n_source
         run: |
           # 메모리 부족 방지를 위해 concurrency=1 (순차 빌드)
