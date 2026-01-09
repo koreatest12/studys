@@ -8,18 +8,16 @@ on:
     - cron: '0 */2 * * *'
   workflow_dispatch:
 
-# [전역 환경 설정]
 env:
   LANG: C.UTF-8
   LC_ALL: C.UTF-8
   JAVA_TOOL_OPTIONS: "-Dfile.encoding=UTF-8"
-  # Node.js 힙 메모리 18GB 유지
   NODE_OPTIONS: "--max_old_space_size=18432"
   CI: true
   TURBO_TELEMETRY_DISABLED: 1
-  # pnpm 홈 경로 강제 지정 (경로 오류 방지)
   PNPM_HOME: "/home/runner/.local/share/pnpm"
-  PATH: "$PNPM_HOME:$PATH"
+  # PATH가 꼬이는 것을 방지하기 위해 명시적으로 추가
+  PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/runner/.local/share/pnpm"
 
 permissions:
   contents: write
@@ -30,44 +28,81 @@ jobs:
   ultra-mass-split-ops:
     name: 🚀 Ultra Mass Expansion & Split Build
     runs-on: ubuntu-latest
+    # 컨테이너 환경일 경우를 대비해 권한 문제 해결
+    container:
+      image: node:22-bullseye # Ubuntu 기반의 안정적인 Node 이미지로 변경 (Alpine의 sudo 문제 해결)
+      options: --user root # 강제 Root 권한 실행
     timeout-minutes: 360
     
     steps:
-      # 1. [초대형 확장] 가상 메모리(SWAP) 14GB
+      # 1. [시스템 복구] 필수 시스템 패키지 강제 설치 (sudo, git, curl 등)
+      - name: 🛠️ System Repair & Install Essentials
+        run: |
+          echo ">>> Detecting OS and Installing Essentials..."
+          
+          # 패키지 매니저 감지 및 업데이트
+          if command -v apt-get &> /dev/null; then
+              apt-get update -y
+              apt-get install -y sudo git curl wget unzip procps
+          elif command -v apk &> /dev/null; then
+              apk update
+              apk add sudo git curl wget bash
+          fi
+          
+          echo ">>> Verifying sudo..."
+          if ! command -v sudo &> /dev/null; then
+              echo "WARNING: sudo still not found. Using direct root execution."
+          else
+              echo "sudo is available."
+          fi
+
+      # 2. [초대형 확장] 가상 메모리(SWAP) 14GB (안전장치 포함)
       - name: 💾 Create Massive Swap Space (14GB)
         run: |
-          echo ">>> Creating 14GB Swap File..."
-          sudo fallocate -l 14G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
+          echo ">>> Attempting to create 14GB Swap..."
+          
+          # 권한에 따른 명령어 접두사 설정
+          if [ "$(id -u)" -eq 0 ]; then PREFIX=""; else PREFIX="sudo"; fi
+          
+          # fallocate가 없으면 dd로 시도, 실패하면 통과 (|| true)
+          $PREFIX fallocate -l 14G /swapfile || $PREFIX dd if=/dev/zero of=/swapfile bs=1G count=14 || true
+          
+          if [ -f /swapfile ]; then
+            $PREFIX chmod 600 /swapfile
+            $PREFIX mkswap /swapfile
+            $PREFIX swapon /swapfile || echo "⚠️ Swap activation failed (container limit?), continuing..."
+            echo ">>> Swap Status:"
+            free -h
+          else
+            echo "⚠️ Failed to create swapfile. Continuing with physical RAM only."
+          fi
 
-      # 2. [초대형 청소] 디스크 35GB+ 확보
+      # 3. [초대형 청소] 디스크 확보 (명령어 존재 여부 체크)
       - name: 🗑️ Aggressive Disk Cleanup & Expansion
         run: |
-          echo ">>> Removing massive packages..."
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/.ghcup
-          sudo docker image prune --all --force
+          echo ">>> Cleaning up disk..."
+          # sudo가 없어도 root면 그냥 실행, 아니면 sudo 사용
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+          
+          $SUDO rm -rf /usr/local/lib/android || true
+          $SUDO rm -rf /usr/share/dotnet || true
+          $SUDO rm -rf /opt/ghc || true
+          
+          if command -v docker &> /dev/null; then
+            $SUDO docker image prune --all --force || true
+          fi
           df -h
 
-      # 3. 소스 코드 체크아웃
+      # 4. 소스 코드 체크아웃 (Git 권한 문제 해결)
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 4. [환경 설정] Node 22 & Java 17
-      - name: Setup Node.js 22 & Java 17
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
+      - name: Fix Git Ownership
+        run: git config --global --add safe.directory '*'
 
+      # 5. [환경 설정] Java 17
       - name: Setup Java JDK 17
         uses: actions/setup-java@v4
         with:
@@ -75,42 +110,51 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # 5. [수정됨] pnpm 강제 설치 (오류 해결 핵심)
-      # Corepack이 실패할 경우를 대비해 npm으로 강제 글로벌 설치 수행
-      - name: ⚡ Force Install pnpm (Global)
+      # 6. [pnpm 3중 강제 설치] (가장 강력한 설치 방법)
+      - name: ⚡ Force Install pnpm (Triple Strategy)
         run: |
-          echo ">>> Force installing pnpm via npm..."
-          npm install -g pnpm@latest
+          echo ">>> Strategy 1: npm install -g pnpm"
+          npm install -g pnpm@latest || true
           
-          # 경로 강제 추가
-          echo "PNPM_HOME=/home/runner/.local/share/pnpm" >> $GITHUB_ENV
-          echo "/home/runner/.local/share/pnpm" >> $GITHUB_PATH
+          echo ">>> Strategy 2: Corepack"
+          corepack enable || true
+          corepack prepare pnpm@latest --activate || true
           
+          echo ">>> Strategy 3: Direct Download (Last Resort)"
+          if ! command -v pnpm &> /dev/null; then
+            curl -fsSL https://get.pnpm.io/install.sh | sh -
+          fi
+          
+          # 환경변수 강제 주입
+          echo "PNPM_HOME=/root/.local/share/pnpm" >> $GITHUB_ENV
+          echo "/root/.local/share/pnpm" >> $GITHUB_PATH
+          export PATH="/root/.local/share/pnpm:$PATH"
+          
+          echo ">>> Verifying pnpm..."
           pnpm --version
-          echo ">>> pnpm installed successfully."
 
-      # 6. [n8n 통합] 대량 클론
+      # 7. [n8n 통합] 대량 클론
       - name: Mass Clone n8n Repository
         run: |
           mkdir -p n8n_integration
           rm -rf n8n_integration/n8n_source
-          echo "Cloning n8n source..."
           git clone --depth 1 https://github.com/n8n-io/n8n.git n8n_integration/n8n_source
           rm -rf n8n_integration/n8n_source/.git
 
-      # 7. [보안] 에셋 보호 및 정리
+      # 8. [보안] 에셋 보호 및 정리 (오류 방지)
       - name: Precision Security Cleaning (Protect Assets)
         run: |
-          echo "Removing secrets while PROTECTING assets..."
+          echo "Removing secrets..."
           rm -f n8n_integration/n8n_source/packages/cli/src/modules/external-secrets.ee/providers/vault.ts
           
+          # find 명령어가 실패해도 빌드는 계속됨
           find n8n_integration -name "*secret*" -type f \
             ! -name "*.ts" ! -name "*.js" ! -name "*.json" ! -name "*.schema" \
             ! -name "*.svg" ! -name "*.png" ! -name "*.vue" \
             -delete || true
 
-      # 8. [복구] 긴급 에셋 복구 (Emergency Asset Rescue)
-      - name: 🚑 Emergency Asset Rescue & Mocking
+      # 9. [복구] 긴급 에셋 복구
+      - name: 🚑 Emergency Asset Rescue
         run: |
           BASE_PATH="n8n_integration/n8n_source/packages/frontend/editor-ui/src/features/integrations/externalSecrets.ee/assets/images"
           mkdir -p "$BASE_PATH"
@@ -121,12 +165,12 @@ jobs:
             echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#ccc"/></svg>' > "$BASE_PATH/gcp-secrets-manager.svg"
           fi
 
-      # 9. [시스템 패치] 메모리 설정 강제 상향
+      # 10. [시스템 패치] 메모리 설정 강제 상향
       - name: Patch Package Memory Limits
         run: |
-          grep -rl "max-old-space-size=8192" n8n_integration/n8n_source | xargs sed -i 's/max-old-space-size=8192/max-old-space-size=16384/g' || true
+          grep -rl "max-old-space-size=8192" n8n_integration/n8n_source | xargs sed -i 's/max-old-space-size=8192/max-old-space-size=18432/g' || true
 
-      # 10. [대량 생성] 디렉토리 구조 확보
+      # 11. [대량 생성] 디렉토리 구조 확보
       - name: Mass Create Directory Structures
         run: |
           cd n8n_integration/n8n_source
@@ -137,43 +181,37 @@ jobs:
           done
           mkdir -p packages/cli/src/modules/external-secrets.ee/schemas
 
-      # 11. [수정됨] 의존성 설치 (이중 안전장치 적용)
+      # 12. [설치] 의존성 설치 (경로 명시)
       - name: Install Dependencies
         working-directory: n8n_integration/n8n_source
         run: |
-          echo ">>> Checking pnpm availability..."
-          # 만약 pnpm 명령어가 없으면 즉시 설치 (자가 복구)
-          if ! command -v pnpm &> /dev/null; then
-            echo "⚠️ pnpm not found in this step! Installing again..."
-            npm install -g pnpm
-          fi
-          
-          echo ">>> Installing dependencies..."
+          # PATH 다시 한 번 확인
+          export PATH="/root/.local/share/pnpm:$PATH"
           pnpm install --no-frozen-lockfile
 
       # =========================================================
-      # 🚀 [분할 증설 빌드] 3단계
+      # 🚀 [분할 증설 빌드] 3단계 (Concurrency 조절)
       # =========================================================
       
-      # [1단계] 기초
       - name: 🔹 Split Build Phase 1:Base
         working-directory: n8n_integration/n8n_source
         run: |
+          export PATH="/root/.local/share/pnpm:$PATH"
           pnpm turbo build --filter=@n8n/api-types --filter=@n8n/utils --filter=@n8n/config --concurrency=2
 
-      # [2단계] 코어 엔진
       - name: 🔹 Split Build Phase 2:Core Engines
         working-directory: n8n_integration/n8n_source
         run: |
+          export PATH="/root/.local/share/pnpm:$PATH"
           pnpm turbo build --filter=n8n-core --filter=n8n-workflow --filter=@n8n/n8n-nodes-langchain --concurrency=2
 
-      # [3단계] UI 및 노드 (실패 허용)
       - name: 🔹 Split Build Phase 3:UI & Nodes
         working-directory: n8n_integration/n8n_source
         run: |
+          export PATH="/root/.local/share/pnpm:$PATH"
           pnpm turbo build --filter=n8n-editor-ui --filter=n8n-nodes-base --filter=n8n --concurrency=1 || echo "⚠️ Phase 3 Warning: Proceeding..."
 
-      # 12. [설정 생성]
+      # 13. [설정 생성]
       - name: Generate Mass Configs
         run: |
           mkdir -p src/main/java/com/example/demo src/main/resources
@@ -198,13 +236,13 @@ jobs:
           ENTRYPOINT ["java", "-jar", "app.jar"]
           EOF
 
-      # 13. 최종 패키징
+      # 14. 최종 패키징
       - name: Finalize & Package
         run: |
-          sudo chmod -R 777 .
+          chmod -R 777 .
           mvn -B package --file pom.xml -DskipTests
 
-      # 14. [Git 대량 동기화]
+      # 15. [Git 대량 동기화]
       - name: Mass Git Sync & Push
         run: |
           git config --global user.name "github-actions[bot]"
@@ -215,7 +253,7 @@ jobs:
           
           git add .
           if ! git diff --staged --quiet; then
-            git commit -m "🚀 Auto: Mass pnpm Fix & Expansion [skip ci]"
+            git commit -m "🚀 Auto: Mass Sudo Fix & Expansion [skip ci]"
             
             n=0
             until [ "$n" -ge 5 ]
