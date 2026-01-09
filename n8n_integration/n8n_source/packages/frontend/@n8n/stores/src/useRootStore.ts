@@ -5,7 +5,7 @@ import { computed, ref } from 'vue';
 import { STORES } from './constants';
 import { getConfigFromMetaTag } from './metaTagConfig';
 
-const { VUE_APP_URL_BASE_API } = import.meta.env;
+const { VUE_APP_URL_BASE_API } = process.env;
 
 export type RootStoreState = {
 	baseUrl: string;

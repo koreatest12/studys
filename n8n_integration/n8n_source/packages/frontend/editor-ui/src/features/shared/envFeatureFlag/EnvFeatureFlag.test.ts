@@ -9,12 +9,12 @@ const renderComponent = createComponentRenderer(EnvFeatureFlag);
 
 describe('EnvFeatureFlag', () => {
 	let settingsStore: MockedStore<typeof useSettingsStore>;
-	const originalEnv = { ...import.meta.env };
+	const originalEnv = { ...process.env };
 
 	beforeEach(() => {
-		Object.keys(import.meta.env).forEach((key) => {
+		Object.keys(process.env).forEach((key) => {
 			if (key.startsWith('N8N_ENV_FEAT_')) {
-				delete (import.meta.env as N8nEnvFeatFlags)[key as keyof N8nEnvFeatFlags];
+				delete (process.env as N8nEnvFeatFlags)[key as keyof N8nEnvFeatFlags];
 			}
 		});
 		createTestingPinia();
@@ -26,7 +26,7 @@ describe('EnvFeatureFlag', () => {
 	});
 
 	afterEach(() => {
-		Object.assign(import.meta.env, originalEnv);
+		Object.assign(process.env, originalEnv);
 	});
 
 	test.each<[N8nEnvFeatFlagValue, Uppercase<string>, boolean]>([
@@ -101,7 +101,7 @@ describe('EnvFeatureFlag', () => {
 	describe('runtime vs build-time priority', () => {
 		it('should prioritize runtime settings over build-time env vars', () => {
 			// Set build-time env var
-			(import.meta.env as N8nEnvFeatFlags).N8N_ENV_FEAT_TEST_FLAG = 'true';
+			(process.env as N8nEnvFeatFlags).N8N_ENV_FEAT_TEST_FLAG = 'true';
 
 			// Set runtime setting to override
 			settingsStore.settings.envFeatureFlags = {
@@ -123,7 +123,7 @@ describe('EnvFeatureFlag', () => {
 
 		it('should fallback to build-time env vars when runtime settings are not available', () => {
 			// Set build-time env var
-			(import.meta.env as N8nEnvFeatFlags).N8N_ENV_FEAT_TEST_FLAG = 'true';
+			(process.env as N8nEnvFeatFlags).N8N_ENV_FEAT_TEST_FLAG = 'true';
 
 			// Runtime settings are empty
 			settingsStore.settings.envFeatureFlags = {};

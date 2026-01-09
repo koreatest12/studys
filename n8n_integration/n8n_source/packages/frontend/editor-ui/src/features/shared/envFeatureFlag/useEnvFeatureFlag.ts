@@ -14,9 +14,9 @@ export const useEnvFeatureFlag = () => {
 			return settingsProvidedEnvFeatFlag !== 'false' && !!settingsProvidedEnvFeatFlag;
 		}
 
-		// "Vite exposes certain constants under the special import.meta.env object. These constants are defined as global variables during dev and statically replaced at build time to make tree-shaking effective."
+		// "Vite exposes certain constants under the special process.env object. These constants are defined as global variables during dev and statically replaced at build time to make tree-shaking effective."
 		// See https://vite.dev/guide/env-and-mode.html
-		const buildTimeValue = (import.meta.env as N8nEnvFeatFlags)[key];
+		const buildTimeValue = (process.env as N8nEnvFeatFlags)[key];
 		if (buildTimeValue !== undefined) {
 			return buildTimeValue !== 'false' && !!buildTimeValue;
 		}

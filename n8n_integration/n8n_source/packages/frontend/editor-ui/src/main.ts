@@ -49,7 +49,7 @@ app.use(router);
 app.use(i18nInstance);
 app.use(ChartJSPlugin);
 
-if (import.meta.env.VUE_SCAN) {
+if (process.env.VUE_SCAN) {
 	const { default: VueScan } = await import('z-vue-scan');
 	app.use<VueScanOptions>(VueScan, {
 		enable: true,
@@ -58,7 +58,7 @@ if (import.meta.env.VUE_SCAN) {
 
 app.mount('#app');
 
-if (!import.meta.env.PROD) {
+if (!process.env.PROD) {
 	// Make sure that we get all error messages properly displayed
 	// as long as we are not in production mode
 	window.onerror = (message, _source, _lineno, _colno, error) => {
