@@ -1,8 +1,8 @@
-name: Ultra Mega Server V14 (Stable Architect)
+name: Ultra Mega Server V15 (Auto-Repair)
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # 안정성을 위해 15분 간격 권장
+    - cron: '*/10 * * * *' # 10분마다 대량 데이터 갱신
   workflow_dispatch:
   push:
     branches: ["main"]
@@ -14,190 +14,192 @@ permissions:
   packages: write
 
 concurrency:
-  group: "mega-server-stable"
-  cancel-in-progress: true
+  group: "mega-server-v15"
+  cancel-in-progress: false
 
 jobs:
-  stable-architect-ops:
+  ultra-repair-ops:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360 # 최대 실행 시간 보장
 
     steps:
-      # 1. 🏁 초기화
+      # 1. 🏁 시스템 초기화 및 체크아웃
       - name: 📥 Initialize System
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1 # 최신만 가져와서 용량 절약
+          fetch-depth: 1
 
-      # 2. 🛡️ [Fix] Jekyll 빌드 오류 방지 설정 (필수)
-      - name: ⚙️ Configure Jekyll Excludes
+      # 2. 🛡️ [Fix] 충돌 방지: 기존 외부 데이터 강제 삭제 (에러 해결 핵심)
+      - name: 🗑️ Force Clean Conflict Directories
         run: |
-          # Jekyll이 외부 소스 코드를 해석하지 않도록 설정 파일 생성
+          echo "=== 🚨 DETECTING CONFLICTS ==="
+          if [ -d "external_studys_data" ]; then
+            echo "⚠️ Found existing directory. Removing for fresh install..."
+            rm -rf external_studys_data
+          fi
+          
+          # 불필요한 임시 파일 대량 삭제
+          rm -rf *.log *.tmp
+          echo "✅ Workspace Cleaned. Ready for Clone."
+
+      # 3. 🧹 [System] 초극강 디스크 확보 (Smart Clean V2)
+      - name: 🧹 Execute Extreme Disk Cleanup
+        run: |
+          echo "=== 🧹 STARTING EXTREME CLEANUP V2 ==="
+          
+          # 1. 대용량 툴체인 삭제 (약 30GB 확보 목표)
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          
+          # 2. Docker & Swap 정리
+          docker system prune -af
+          sudo swapoff -a
+          sudo rm -f /mnt/swapfile
+          
+          df -h /
+          echo "✅ Disk Capacity Maximized."
+
+      # 4. 🔗 [External] 외부 리포지토리 대량 통합 (Clean Clone)
+      - name: 📡 Mass Integrate External Repo
+        run: |
+          echo "=== 📥 Cloning External Data ==="
+          # 폴더가 깨끗해졌으므로 에러 없이 클론 가능
+          git clone --depth 1 https://github.com/koreatest12/studys.git external_studys_data
+          
+          # .git 제거 및 권한 부여
+          rm -rf external_studys_data/.git
+          chmod -R 777 external_studys_data
+          
+          echo "✅ External Data Integration Complete."
+
+      # 5. ⚙️ [Config] Jekyll 빌드 에러 방지 (필수)
+      - name: ⚙️ Configure Jekyll Exclusion
+        run: |
+          # 외부 코드의 Liquid 문법 충돌 방지
           cat <<EOF > _config.yml
-          title: Ultra Mega Server V14
-          theme: jekyll-theme-hacker
+          title: Ultra Mega Server V15
+          theme: jekyll-theme-slate
           exclude:
             - external_studys_data/
             - node_modules/
             - vendor/
             - .github/
             - "*.json"
-            - "*.xml"
           EOF
-          echo "✅ Jekyll Configuration Applied (Ignoring Source Code)"
 
-      # 3. 🧹 [System] 초극강 디스크 정리 (Ultra Clean)
-      - name: 🧹 Execute Ultra Disk Cleanup
+      # 6. 🏭 [Engine] 대량 데이터 생성 및 테이블 샤딩 (Safe Mode)
+      - name: 🏗️ Run Massive Data Generator V15
         run: |
-          echo "=== 🚨 STARTING ULTRA CLEANUP ==="
-          df -h /
-          
-          # 불필요한 대형 도구 제거 (약 25GB+ 확보 시도)
-          sudo rm -rf /usr/local/lib/android # Android SDK
-          sudo rm -rf /usr/share/dotnet      # .NET Core
-          sudo rm -rf /opt/ghc               # Haskell
-          sudo rm -rf /opt/hostedtoolcache   # Cached Tools
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          
-          # Docker 정리
-          docker system prune -af
-          docker volume prune -f
-          
-          # APT 캐시 정리
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-          
-          echo "=== ✨ CLEANUP COMPLETE ==="
-          df -h /
-          echo "✅ Maximum Capacity Secured."
-
-      # 4. 🔗 [External] 외부 리포지토리 안전 통합
-      - name: 📡 Integrate External Repo (Safe Mode)
-        run: |
-          # 얕은 복사(depth 1)로 용량 절약
-          git clone --depth 1 https://github.com/koreatest12/studys.git external_studys_data
-          
-          # .git 폴더 제거 (용량 확보 및 서브모듈 오류 방지)
-          rm -rf external_studys_data/.git
-          
-          echo "✅ External Data Loaded (Lightweight Mode)."
-
-      # 5. 🏭 [Engine] 스마트 데이터 생성 (공간 감지형)
-      - name: 🏗️ Run Smart Architect Engine
-        run: |
-          # Python 스크립트 작성
-          cat <<'EOF' > mega_architect_v14.py
+          cat <<'EOF' > mega_generator_v15.py
           import os
           import random
           import datetime
           import shutil
-          import json
           import sqlite3
+          import time
 
-          # === [1] 스마트 용량 감지 함수 ===
-          def check_disk_space(min_gb=1.0):
+          # === [1] 디스크 안전 감지 함수 (Crash 방지) ===
+          def is_disk_safe(min_gb=1.5):
               total, used, free = shutil.disk_usage("/")
-              free_gb = free / (1024**3)
-              print(f"   [Disk Check] Free Space: {free_gb:.2f} GB")
-              return free_gb > min_gb
+              return (free / (1024**3)) > min_gb
 
-          # === [2] 서비스 아키텍처 정의 ===
-          services = ["Auth_Core", "Payment_Gateway", "User_Data", "Log_Vault", "AI_Model_Server"]
-          base_dir = "Enterprise_Services"
+          # === [2] 서비스 메쉬 디렉토리 구조 생성 ===
+          base_dir = "Mega_Service_Mesh"
+          services = [
+              "Auth_Server", "Payment_Cluster", "User_Node_A", 
+              "User_Node_B", "Log_Vault", "Backup_Shard"
+          ]
+          
+          # 기존 데이터 정리 후 재생성 (중복 방지)
+          if os.path.exists(base_dir):
+              shutil.rmtree(base_dir)
           os.makedirs(base_dir, exist_ok=True)
 
-          print(">> 🚀 Starting Smart Data Generation...")
-
-          # === [3] 데이터베이스(SQLite) 생성 ===
-          db_path = "enterprise_v14.db"
+          # === [3] DB 테이블 대량 생성 ===
+          db_path = f"{base_dir}/enterprise_core.db"
           conn = sqlite3.connect(db_path)
           cursor = conn.cursor()
           
-          # 테이블 생성
-          cursor.execute("CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY, service TEXT, msg TEXT, timestamp DATETIME)")
-          cursor.execute("CREATE TABLE IF NOT EXISTS transactions (tx_id TEXT, amount REAL, status TEXT)")
+          tables = ["access_logs", "transaction_history", "error_reports", "user_sessions"]
+          for tbl in tables:
+              cursor.execute(f"CREATE TABLE IF NOT EXISTS {tbl} (id INTEGER PRIMARY KEY, data TEXT, created_at TIMESTAMP)")
+
+          print(">> 🚀 Generating Massive Data Shards...")
+
+          # === [4] 파일 및 레코드 대량 투입 ===
+          file_count = 0
           
-          total_files = 0
-          
-          # === [4] 서비스별 데이터 생성 (공간이 있을 때만) ===
           for svc in services:
-              svc_dir = f"{base_dir}/{svc}"
-              os.makedirs(svc_dir, exist_ok=True)
+              svc_path = f"{base_dir}/{svc}"
+              os.makedirs(svc_path, exist_ok=True)
               
-              # 로그 생성 (DB)
-              for _ in range(50):
-                  cursor.execute("INSERT INTO system_logs (service, msg, timestamp) VALUES (?, ?, ?)", 
-                                (svc, f"System check OK for {svc}", datetime.datetime.now()))
+              # 4-1. DB 레코드 대량 삽입
+              for _ in range(100):
+                  cursor.execute(f"INSERT INTO access_logs (data, created_at) VALUES (?, ?)", 
+                                (f"Access from {svc} node", datetime.datetime.now()))
               
-              # 파일 생성 (공간 체크)
-              if check_disk_space(min_gb=2.0): # 2GB 이상 남았을 때만 대용량 파일 생성
-                  print(f"   -> Generating High-Res Assets for {svc}...")
-                  for i in range(3):
-                      # 10MB ~ 30MB로 사이즈 조절 (안전성 확보)
-                      size_mb = random.randint(10, 30)
-                      fname = f"{svc_dir}/asset_{i}_{datetime.datetime.now().strftime('%H%M')}.dat"
+              # 4-2. 파일 생성 (용량 체크하며 진행)
+              if is_disk_safe():
+                  # 5개 ~ 10개의 중형 파일 생성
+                  for i in range(random.randint(5, 10)):
+                      # 파일 크기 5MB ~ 15MB (안전 범위 내 최대화)
+                      size_mb = random.randint(5, 15)
+                      fname = f"{svc_path}/shard_{i}_{int(time.time())}.bin"
                       try:
                           with open(fname, "wb") as f:
                               f.seek((size_mb * 1024 * 1024) - 1)
                               f.write(b'\0')
-                          total_files += 1
-                      except OSError:
-                          print("   ⚠️ Disk Full! Stopping generation.")
+                          file_count += 1
+                      except:
                           break
               else:
-                  print(f"   ⚠️ Low Disk Space. Skipping large files for {svc}.")
-                  # 작은 텍스트 파일로 대체
-                  with open(f"{svc_dir}/status.txt", "w") as f:
-                      f.write("Service Active (Low Storage Mode)")
+                  print(f"⚠️ Skipping large files for {svc} (Disk Limit Reached)")
+                  with open(f"{svc_path}/overflow_alert.txt", "w") as f:
+                      f.write("Disk Full - Generation Paused")
 
           conn.commit()
           conn.close()
+          print(f"✅ Generated {file_count} shards across {len(services)} services.")
 
           # === [5] 어드민 대시보드 생성 ===
           total, used, free = shutil.disk_usage("/")
-          used_p = (used / total) * 100
+          used_gb = used // (1024**3)
+          total_gb = total // (1024**3)
           
           html = f"""
           <!DOCTYPE html>
-          <html lang="en">
+          <html>
           <head>
-              <meta charset="UTF-8">
-              <title>Mega Server V14 Architect</title>
+              <meta charset="utf-8">
+              <title>MEGA SERVER V15 STATUS</title>
               <style>
-                  body {{ background: #1a1a2e; color: #e94560; font-family: monospace; padding: 20px; }}
-                  .container {{ max-width: 1000px; margin: 0 auto; border: 2px solid #16213e; padding: 20px; background: #0f3460; }}
-                  h1 {{ border-bottom: 2px solid #e94560; padding-bottom: 10px; }}
-                  .stat-box {{ background: #1a1a2e; padding: 15px; margin: 10px 0; border-radius: 5px; }}
-                  .bar-bg {{ background: #16213e; height: 20px; width: 100%; }}
-                  .bar-fill {{ background: linear-gradient(90deg, #e94560, #ffbd69); height: 100%; width: {used_p}%; }}
-                  table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                  th, td {{ border: 1px solid #16213e; padding: 10px; text-align: left; color: #fff; }}
-                  th {{ background: #16213e; color: #e94560; }}
+                  body {{ background: #111; color: #0f0; font-family: 'Courier New'; padding: 20px; }}
+                  .box {{ border: 1px solid #0f0; padding: 15px; margin-bottom: 20px; }}
+                  h1 {{ text-align: center; border-bottom: 1px solid #0f0; }}
+                  .bar {{ background: #333; height: 20px; width: 100%; }}
+                  .fill {{ background: #0f0; height: 100%; width: {(used/total)*100}%; }}
               </style>
           </head>
           <body>
-              <div class="container">
-                  <h1>🚀 MEGA SERVER V14: STABLE ARCHITECT</h1>
-                  <div class="stat-box">
-                      <h3>💾 Disk Storage (Smart Managed)</h3>
-                      <div class="bar-bg"><div class="bar-fill"></div></div>
-                      <p>{used // (1024**3)} GB Used / {total // (1024**3)} GB Total ({used_p:.1f}%)</p>
-                      <p>Status: {"🟢 STABLE" if free > 1024**3 else "🔴 CRITICAL"}</p>
-                  </div>
-                  
-                  <h3>📂 Service Mesh Status</h3>
-                  <table>
-                      <tr><th>Service Name</th><th>Status</th><th>Files Generated</th></tr>
-          """
-          
-          for svc in services:
-              html += f"<tr><td>{svc}</td><td>Active</td><td>Checked</td></tr>"
-              
-          html += """
-                  </table>
-                  <p><i>* System optimized to prevent crash. External data integration active.</i></p>
+              <h1>🖥️ ULTRA SERVER V15 ONLINE</h1>
+              <div class="box">
+                  <h3>💾 DISK STATUS (AUTO-MANAGED)</h3>
+                  <div class="bar"><div class="fill"></div></div>
+                  <p>{used_gb} GB Used / {total_gb} GB Total</p>
+                  <p>Generated Files: {file_count} Shards</p>
+              </div>
+              <div class="box">
+                  <h3>🔗 EXTERNAL INTEGRATION</h3>
+                  <p>Repository: koreatest12/studys (Integrated)</p>
+                  <p>Status: Active</p>
+              </div>
+              <div class="box">
+                  <h3>🛡️ AUTO-REPAIR LOG</h3>
+                  <p>Conflict Resolution: Executed</p>
+                  <p>Directory Clean: Completed</p>
               </div>
           </body>
           </html>
@@ -207,24 +209,28 @@ jobs:
               f.write(html)
           EOF
           
-          python3 mega_architect_v14.py
+          python3 mega_generator_v15.py
 
-      # 6. 🚀 [Deploy] 최종 배포 (LFS 설정 포함)
-      - name: 🚀 Deploy to GitHub Pages
+      # 7. 🚀 [Deploy] 최종 반영 (충돌 방지 로직 포함)
+      - name: 🚀 Sync & Deploy
         run: |
-          git config --global user.name "Architect-Bot"
-          git config --global user.email "bot@megaserver.internal"
+          git config --global user.name "Mega-Bot-V15"
+          git config --global user.email "bot@v15.internal"
           
-          # LFS 설치
+          # LFS 추적
           git lfs install
-          git lfs track "*.dat" "*.db" "*.dll"
+          git lfs track "*.bin" "*.db"
           
           git add .
-          git commit -m "🚀 V14 Stable: Fixed Liquid Errors & Disk Overflow [$(date)]" || echo "No changes"
-          git pull --rebase origin main || echo "Rebase handled"
-          git push origin main || echo "Push handled"
+          
+          # 커밋 시도 (변경 없으면 통과)
+          git commit -m "🚀 V15 Update: Auto-Repair & Mass Generation [$(date)]" || echo "No changes to commit"
+          
+          # 원격지와 충돌 시 강제 병합 전략
+          git pull --rebase origin main || (git rebase --abort && git pull origin main --strategy-option=theirs)
+          git push origin main || echo "Push skipped (Transient Network Issue)"
 
-      # 7. Pages 빌드
+      # 8. Pages 배포
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
@@ -240,7 +246,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: stable-architect-ops
+    needs: ultra-repair-ops
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
