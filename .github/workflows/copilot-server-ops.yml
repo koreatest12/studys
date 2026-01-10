@@ -1,4 +1,4 @@
-name: Copilot AI Server Ops & Massive Training Pipeline
+name: Copilot AI Server Ops & Massive Training Pipeline V2
 
 on:
   schedule:
@@ -6,19 +6,19 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: '실행 모드 (All/Auto/Create/Update/Train)' # 'All' 모드 명시
+        description: '실행 모드 (All/Auto/Create/Update/Train)'
         required: true
-        default: 'all' # 기본값을 'all'로 설정하여 모든 기능 수행 유도
+        default: 'all'
         type: choice
         options:
-          - all    # [NEW] 모든 기능 일괄 실행
+          - all
           - auto
           - create
           - update
           - train
       count:
-        description: '데이터 생성 및 학습 배치 크기 (기본값: 50)'
-        default: '50'
+        description: '데이터 생성 배치 크기 (기본값: 100)'
+        default: '100'
         required: false
       epochs:
         description: 'AI 학습 반복 횟수 (Epochs)'
@@ -46,43 +46,82 @@ jobs:
           sudo apt-get update -y
           python -m pip install --upgrade pip
           pip install --upgrade requests PyGithub pandas cryptography numpy tqdm
-          echo "✅ AI/ML Environment Ready."
+          
+          # [NEW] 대용량 파일 처리를 위한 Git LFS 설치
+          sudo apt-get install git-lfs -y
+          git lfs install
+          echo "✅ AI/ML Environment & LFS Ready."
 
       # 2. [인프라 구성]
       - name: 📂 Initialize Data Lake & Model Registry
         run: |
           echo "🛠️ Constructing AI Infrastructure..."
-          mkdir -p copilot_server/data/raw_ingestion
-          mkdir -p copilot_server/data/processed_datasets
-          mkdir -p copilot_server/data/encrypted_vault
+          mkdir -p copilot_server/data/{raw_ingestion,processed_datasets,encrypted_vault}
           mkdir -p copilot_server/models/checkpoints
           mkdir -p copilot_server/logs/training_metrics
           mkdir -p copilot_server/config/permissions
           mkdir -p scripts
           echo "✅ Infrastructure Created."
 
-      # 3. [데이터 수집 & 전처리]
-      - name: 🧬 Mass Data Ingestion & Preprocessing
+      # 3. [데이터 수집 & 전처리 & 레지스트리 등록]
+      - name: 🧬 Mass Data Ingestion & Registry Update
         env:
-          BATCH_SIZE: ${{ inputs.count != '' && inputs.count || '50' }}
+          BATCH_SIZE: ${{ inputs.count != '' && inputs.count || '100' }}
         run: |
           echo "⚡ Starting Mass Data Ingestion..."
           python3 -c "
-          import os, uuid, time, json, random
-          try: count = int(os.environ.get('BATCH_SIZE', 50))
-          except: count = 50
-          raw_dir, proc_dir = 'copilot_server/data/raw_ingestion', 'copilot_server/data/processed_datasets'
-          keywords = ['def', 'class', 'import', 'return', 'async', 'await', 'try', 'except', 'pandas', 'numpy']
-          print(f'🔄 Ingesting {count} raw code snippets...')
+          import os, uuid, time, json, random, glob
+          
+          try: count = int(os.environ.get('BATCH_SIZE', 100))
+          except: count = 100
+          
+          base_dir = 'copilot_server'
+          raw_dir = f'{base_dir}/data/raw_ingestion'
+          proc_dir = f'{base_dir}/data/processed_datasets'
+          
+          keywords = ['def', 'class', 'import', 'return', 'async', 'await', 'try', 'except', 'torch', 'tensorflow']
+          
+          print(f'🔄 Ingesting {count} new code snippets...')
+          new_files = []
+          
           for i in range(count):
               tx_id = uuid.uuid4().hex[:8]
               timestamp = int(time.time())
-              code_lines = [' '.join(random.choices(keywords, k=5)) for _ in range(10)]
+              
+              # Raw Data 생성
+              code_lines = [' '.join(random.choices(keywords, k=5)) for _ in range(8)]
               raw_content = '\n'.join(code_lines)
-              with open(f'{raw_dir}/snippet_{timestamp}_{i}_{tx_id}.py', 'w') as f: f.write(raw_content)
-              dataset_entry = {'instruction': f'Explain snippet {tx_id}', 'input': raw_content, 'output': 'Simulated output.'}
-              with open(f'{proc_dir}/train_set_{timestamp}.jsonl', 'a') as f: f.write(json.dumps(dataset_entry) + '\n')
-          print(f'✅ Data Pipeline Complete.')
+              raw_fname = f'snippet_{timestamp}_{i}_{tx_id}.py'
+              with open(f'{raw_dir}/{raw_fname}', 'w') as f: f.write(raw_content)
+              
+              # Processed Data (JSONL) 생성
+              dataset_entry = {
+                  'id': tx_id,
+                  'instruction': f'Optimize logic in {tx_id}',
+                  'input': raw_content,
+                  'output': 'Optimization simulated.'
+              }
+              proc_fname = f'train_set_{timestamp}.jsonl'
+              with open(f'{proc_dir}/{proc_fname}', 'a') as f: 
+                  f.write(json.dumps(dataset_entry) + '\n')
+              
+              if i == 0: new_files.append(proc_fname)
+
+          # [NEW] 데이터 레지스트리(Manifest) 업데이트
+          manifest_path = f'{base_dir}/data/dataset_manifest.json'
+          manifest = []
+          if os.path.exists(manifest_path):
+              with open(manifest_path, 'r') as f: manifest = json.load(f)
+          
+          manifest.append({
+              'timestamp': time.time(),
+              'new_records': count,
+              'status': 'INGESTED'
+          })
+          # 최근 50개 기록만 유지
+          with open(manifest_path, 'w') as f: json.dump(manifest[-50:], f, indent=2)
+          
+          print(f'✅ Data Pipeline Complete. Manifest Updated.')
           "
 
       # 4. [보안] 암호화 및 키 발급
@@ -91,16 +130,26 @@ jobs:
           echo "🔒 Encrypting Sensitive Training Data..."
           python3 -c "
           import os, secrets, glob
-          proc_dir, vault_dir, perm_dir = 'copilot_server/data/processed_datasets', 'copilot_server/data/encrypted_vault', 'copilot_server/config/permissions'
+          proc_dir = 'copilot_server/data/processed_datasets'
+          vault_dir = 'copilot_server/data/encrypted_vault'
+          perm_dir = 'copilot_server/config/permissions'
+          
           files = glob.glob(f'{proc_dir}/*.jsonl')
           for file_path in files:
               filename = os.path.basename(file_path)
+              enc_path = f'{vault_dir}/{filename}.enc'
+              
+              # 이미 암호화된 파일은 건너뛰기 (효율성)
+              if os.path.exists(enc_path): continue
+              
               with open(file_path, 'rb') as f: data = f.read()
-              with open(f'{vault_dir}/{filename}.enc', 'wb') as f: f.write(secrets.token_bytes(16) + data[::-1])
+              with open(enc_path, 'wb') as f: f.write(secrets.token_bytes(16) + data[::-1])
+              
               key_path = f'{perm_dir}/key_{filename.split('.')[0]}.pem'
-              with open(key_path, 'w') as f: f.write(f'-----BEGIN KEY-----\n{secrets.token_urlsafe(32)}\n-----END KEY-----')
+              with open(key_path, 'w') as f: 
+                  f.write(f'-----BEGIN KEY-----\n{secrets.token_urlsafe(32)}\n-----END KEY-----')
               os.chmod(key_path, 0o600)
-          print(f'✅ Security Applied: {len(files)} datasets encrypted.')
+          print(f'✅ Security Applied. Vault updated.')
           "
 
       # 5. [AI 학습]
@@ -111,47 +160,121 @@ jobs:
           echo "🚀 Starting Distributed Training Simulation..."
           python3 -c "
           import os, time, random, json, uuid
+          
           epochs = int(os.environ.get('EPOCHS', 5))
-          model_dir, log_dir = 'copilot_server/models/checkpoints', 'copilot_server/logs/training_metrics'
-          run_id, loss = uuid.uuid4().hex[:6], 2.5
+          model_dir = 'copilot_server/models/checkpoints'
+          log_dir = 'copilot_server/logs/training_metrics'
+          
+          run_id = uuid.uuid4().hex[:6]
+          loss = 2.5
           metrics_log = []
+          
+          print(f'🔄 Training Run ID: {run_id}')
+          
           for epoch in range(1, epochs + 1):
               loss = max(0.1, loss * random.uniform(0.8, 0.95))
               accuracy = 1.0 - (loss / 3.0)
-              metrics_log.append({'epoch': epoch, 'loss': round(loss, 4), 'accuracy': round(accuracy, 4), 'timestamp': time.time()})
+              
+              metrics = {
+                  'epoch': epoch, 
+                  'loss': round(loss, 4), 
+                  'accuracy': round(accuracy, 4), 
+                  'timestamp': time.time()
+              }
+              metrics_log.append(metrics)
               print(f'   [Epoch {epoch}/{epochs}] Loss: {loss:.4f} | Acc: {accuracy:.2%}')
-              if epoch % 2 == 0 or epoch == epochs:
-                  with open(f'{model_dir}/copilot_v2_epoch{epoch}_{run_id}.pt', 'wb') as f: f.write(os.urandom(1024))
-          with open(f'{log_dir}/train_metrics_{run_id}.json', 'w') as f: json.dump(metrics_log, f, indent=2)
+              
+              # 체크포인트 저장 (LFS용 대용량 더미 파일)
+              if epoch == epochs:
+                  ckpt_name = f'copilot_v2_final_{run_id}.pt'
+                  with open(f'{model_dir}/{ckpt_name}', 'wb') as f:
+                      # 1MB 더미 데이터
+                      f.write(os.urandom(1024 * 1024))
+          
+          # 로그 저장
+          with open(f'{log_dir}/train_metrics_{run_id}.json', 'w') as f: 
+              json.dump(metrics_log, f, indent=2)
           print('✅ Model Training Completed.')
           "
 
-      # 6. [운영 스크립트 실행] - 'All' 모드 처리 로직 추가
+      # [NEW] 6. [대시보드 생성] 학습 현황 시각화
+      - name: 📊 Generate AI Status Dashboard
+        run: |
+          python3 -c "
+          import os, json, glob
+          
+          log_dir = 'copilot_server/logs/training_metrics'
+          logs = sorted(glob.glob(f'{log_dir}/*.json'), key=os.path.getmtime, reverse=True)
+          
+          latest_metrics = []
+          if logs:
+              with open(logs[0], 'r') as f: latest_metrics = json.load(f)
+          
+          final_acc = latest_metrics[-1]['accuracy'] if latest_metrics else 0
+          final_loss = latest_metrics[-1]['loss'] if latest_metrics else 0
+          
+          html_content = f'''
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Copilot AI Training Status</title>
+            <style>
+              body {{ background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 20px; }}
+              .card {{ background: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 6px; margin-bottom: 20px; }}
+              h1 {{ color: #58a6ff; }}
+              .stat {{ font-size: 2em; font-weight: bold; }}
+              .good {{ color: #3fb950; }}
+              .bad {{ color: #f85149; }}
+            </style>
+          </head>
+          <body>
+            <h1>🧠 Copilot AI Server Status</h1>
+            <div class='card'>
+              <h3>Latest Training Performance</h3>
+              <p>Accuracy: <span class='stat good'>{final_acc:.2%}</span></p>
+              <p>Loss: <span class='stat bad'>{final_loss:.4f}</span></p>
+            </div>
+            <div class='card'>
+              <h3>System Logs</h3>
+              <pre>{json.dumps(latest_metrics, indent=2)}</pre>
+            </div>
+          </body>
+          </html>
+          '''
+          
+          with open('copilot_server/ai_status_board.html', 'w') as f:
+              f.write(html_content)
+          print('✅ Dashboard generated.')
+          "
+
+      # 7. [운영 스크립트 실행]
       - name: 🏃 Run Ops Management Script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
-          # 입력된 모드가 'all'이면 스크립트 내부에서 모든 로직을 처리하도록 'all' 전달
           MODE: ${{ inputs.mode || 'all' }}
         run: |
-          echo "⚙️ Executing in MODE: $MODE"
           if [ -f "scripts/issue_manager.py" ]; then
             python scripts/issue_manager.py
           else
-            echo "⚠️ issue_manager.py not found. Creating placeholder."
-            # 'All' 모드일 때의 안내 메시지 추가
-            echo "import os; mode = os.getenv('MODE'); print(f'Ops Script Running in {mode} mode... Executing FULL diagnostics.');" > scripts/issue_manager.py
+            echo "import os; print('Running Diagnostics...');" > scripts/issue_manager.py
             python scripts/issue_manager.py
           fi
 
-      # 7. [동기화]
+      # 8. [동기화] LFS 추적 및 데이터 커밋
       - name: 🔄 Sync Data & Models to Repo
         run: |
           git config --global user.name "ai-ops-bot"
           git config --global user.email "ai-ops-bot@users.noreply.github.com"
+          
+          # [NEW] LFS 트래킹 설정
+          git lfs track "*.pt" "*.enc" "*.bin"
+          git add .gitattributes
+          
           if [ -n "$(git status --porcelain)" ]; then
             git add .
-            git commit -m "🧠 AI Ops: Mass Data Ingestion & Model Training Update (Mode: ${{ inputs.mode }}) [skip ci]"
+            git commit -m "🧠 AI Ops: Mass Data & Training Update (Mode: ${{ inputs.mode }}) [skip ci]"
+            
             n=0
             until [ "$n" -ge 5 ]; do
                git pull --rebase origin ${GITHUB_REF_NAME} && break
