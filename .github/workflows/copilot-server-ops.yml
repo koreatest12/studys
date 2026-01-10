@@ -41,47 +41,81 @@ jobs:
           
           echo "🔄 Upgrading Python Dependencies..."
           python -m pip install --upgrade pip
-          # 필요한 라이브러리 추가 (requests, PyGithub 등)
-          pip install --upgrade requests PyGithub pandas 
+          # 암호화 및 데이터 처리에 필요한 cryptography 라이브러리 추가
+          pip install --upgrade requests PyGithub pandas cryptography
           
           echo "✅ Server Environment Upgraded."
 
-      # 2. [디렉토리 생성] Copilot 서버 구동에 필요한 폴더 구조 생성
+      # 2. [디렉토리 생성] Copilot 서버 및 보안 데이터 폴더 구조 생성
       - name: 📂 Create Workspace Directories
         run: |
           echo "🛠️ Creating Directory Structure..."
-          # -p 옵션은 디렉토리가 이미 존재하면 에러 없이 넘어감
-          mkdir -p copilot_server/data
+          mkdir -p copilot_server/data/encrypted
           mkdir -p copilot_server/logs
-          mkdir -p copilot_server/config
+          mkdir -p copilot_server/config/permissions
           mkdir -p scripts
           
-          echo "✅ Directories Created: data, logs, config"
+          echo "✅ Directories Created: encrypted data, logs, permissions"
 
-      # 3. [Copilot Server 설치] (예시: GitHub Copilot CLI 또는 서버 스크립트 설정)
+      # 3. [Copilot Server 설치]
       - name: 🤖 Install Copilot Server Environment
         run: |
           echo "🚀 Setting up Copilot Server..."
-          
-          # [선택] GitHub Copilot CLI 설치가 필요한 경우
           if ! command -v gh &> /dev/null; then
              echo "Installing GitHub CLI..."
              sudo apt-get install gh -y
           fi
-          
-          # GitHub Copilot 확장 프로그램 설치 (필요시)
-          # gh extension install github/gh-copilot --force
-          
           echo "✅ Copilot Server Environment Ready."
 
-      # 4. [스크립트 실행] 에러 수정 포함 (Count 값 강제 주입)
+      # [NEW] 4. [보안/데이터 대량 생성] 암호화 파일 및 권한 파일 생성
+      - name: 🔐 Generate Mass Encrypted Data & Permissions
+        env:
+          # inputs.count가 없거나 빈 문자열일 경우 10으로 강제 설정 (안전 장치)
+          COUNT: ${{ inputs.count != '' && inputs.count || '10' }}
+        run: |
+          echo "⚡ Starting Mass Generation... Target Count: $COUNT"
+          
+          # Python 스크립트를 인라인으로 실행하여 대량 파일 생성
+          python3 -c "
+          import os
+          import uuid
+          import secrets
+          import time
+
+          try:
+              count = int(os.environ.get('COUNT', 10))
+          except ValueError:
+              count = 10
+
+          print(f'🔄 Generating {count} encrypted datasets and permission keys...')
+
+          for i in range(count):
+              unique_id = uuid.uuid4().hex[:8]
+              timestamp = int(time.time())
+
+              # 1. 암호화 데이터 파일 생성 (바이너리 난수)
+              enc_filename = f'copilot_server/data/encrypted/data_{timestamp}_{i}_{unique_id}.enc'
+              with open(enc_filename, 'wb') as f:
+                  # 1MB ~ 5MB 크기의 랜덤 더미 데이터 생성 시뮬레이션 (여기서는 가볍게 1KB)
+                  f.write(secrets.token_bytes(1024))
+              
+              # 2. 권한(Permission) 키 파일 생성
+              perm_filename = f'copilot_server/config/permissions/auth_{timestamp}_{i}_{unique_id}.key'
+              with open(perm_filename, 'w') as f:
+                  f.write(f'-----BEGIN COPILOT ACCESS KEY-----\n{secrets.token_hex(64)}\n-----END COPILOT ACCESS KEY-----')
+              
+              # 3. 파일 권한 설정 (chmod 600 - 소유자만 읽기/쓰기)
+              os.chmod(perm_filename, 0o600)
+
+          print(f'✅ Successfully generated {count} sets of secured files.')
+          "
+
+      # 5. [스크립트 실행] 기존 로직 유지 (issue_manager.py)
       - name: 🏃 Run Ops Script (Robust)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
-          # 입력값이 없거나 스케줄 실행일 경우 기본값 로직 적용
           MODE: ${{ inputs.mode || 'auto' }}
-          # ⚠️ 핵심 수정: inputs.count가 빈 문자열('')일 경우 '10'을 강제로 할당
           COUNT: ${{ inputs.count != '' && inputs.count || '10' }}
         run: |
           echo "⚙️ Execution Parameters -> Mode: $MODE, Count: $COUNT"
@@ -90,12 +124,11 @@ jobs:
             python scripts/issue_manager.py
           else
             echo "⚠️ Script 'scripts/issue_manager.py' not found. Creating dummy for test."
-            # 테스트를 위한 더미 스크립트 생성 (실제 사용 시 제거 가능)
             echo "import os; print(f'Running in {os.getenv(\"MODE\")} mode with count {os.getenv(\"COUNT\")}')" > scripts/issue_manager.py
             python scripts/issue_manager.py
           fi
 
-      # 5. [변경사항 반영] 서버 동기화 및 푸시
+      # 6. [변경사항 반영] 서버 동기화 및 푸시
       - name: 🔄 Sync & Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
@@ -103,10 +136,20 @@ jobs:
           
           if [ -n "$(git status --porcelain)" ]; then
             git add .
-            git commit -m "🚀 Copilot Server Upgrade & Ops [skip ci]"
-            git pull --rebase origin ${GITHUB_REF_NAME}
+            git commit -m "🚀 Copilot Security Data & Permissions Update [skip ci]"
+            
+            # 충돌 방지 재시도 루프
+            n=0
+            until [ "$n" -ge 5 ]
+            do
+               echo "🔄 Syncing with remote server (Attempt $((n+1)))..."
+               git pull --rebase origin ${GITHUB_REF_NAME} && break
+               n=$((n+1))
+               sleep 5
+            done
+            
             git push origin HEAD:${GITHUB_REF}
-            echo "✅ Changes pushed successfully."
+            echo "✅ Server Sync Completed."
           else
-            echo "ℹ️ No changes to push."
+            echo "ℹ️ No changes needed."
           fi
