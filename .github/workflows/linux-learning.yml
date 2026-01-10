@@ -1,12 +1,11 @@
-name: Linux Mega Server & Reboot System V9
+name: Ultra Mega Server V10 (External Integration)
 
 on:
-  # ⏰ 10분마다 실행 (재기동 및 데이터 생성)
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/10 * * * *' # ⏰ 10분마다 실행
+  workflow_dispatch:       # 수동 실행 가능
   push:
     branches: ["main"]
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,230 +14,256 @@ permissions:
   packages: write
 
 concurrency:
-  group: "pages"
+  group: "mega-server-ops"
   cancel-in-progress: false
 
 jobs:
-  mega-server-job:
+  ultra-server-ops:
     runs-on: ubuntu-latest
+    timeout-minutes: 360 # 최대 실행 시간 연장
+
     steps:
       # 1. 저장소 체크아웃
-      - name: Checkout Repository
+      - name: 📥 Checkout Current Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 🟢 [기능 1] 극한의 용량 증설 (Max Capacity Hack)
-      - name: 💾 Maximize Disk Capacity (~40GB+)
+      # 🟢 [기능 1] 극한의 용량 확보 (약 30GB+ 확보)
+      - name: 🧹 Maximize Disk Space (Extreme Clean)
         run: |
-          echo "=== 🧹 STARTING EXTREME CLEANUP ==="
+          echo "=== 🚨 STARTING EXTREME DISK CLEANUP ==="
           df -h /
           
-          # 거대 패키지 강제 삭제 (Android, Dotnet, CodeQL, Haskell 등)
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache
-          sudo rm -rf /usr/local/graalvm
+          # 1. 거대 패키지 삭제
+          sudo rm -rf /usr/local/lib/android # 안드로이드 SDK (약 7GB)
+          sudo rm -rf /usr/share/dotnet      # .NET (약 1GB)
+          sudo rm -rf /opt/ghc               # Haskell (약 2GB)
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" # 캐시된 도구들
           
-          # Docker 이미지 정리
+          # 2. Docker 이미지 및 임시 파일 정리
           docker system prune -af
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
           
           echo "=== ✨ CLEANUP COMPLETE ==="
           df -h /
-          echo "✅ Disk Capacity Maximized for Heavy Load."
+          echo "✅ Capacity Maximized for Massive Data Ops."
 
-      # 2. 동기화 및 초기화
-      - name: Sync & Init
+      # 🟢 [기능 2] 외부 리포지토리 대량 통합 및 설치
+      - name: 🔗 Integrate & Install External Repo (Studys)
         run: |
-          git config --global user.name "Mega-Server-Bot"
-          git config --global user.email "admin@megaserver.com"
-          git pull --rebase origin main || echo "Sync OK"
+          echo "=== 📥 Cloning External Repository ==="
+          # 외부 리포지토리 클론 (별도 폴더)
+          git clone https://github.com/koreatest12/studys.git external_studys_data
           
-          ROOT="File_Server_Root"
-          mkdir -pv "$ROOT"/{System,Data,Logs,Boot}
-          mkdir -pv output_data
+          echo "=== 🛠️ Integrating Files ==="
+          # .git 폴더 제거 (서브모듈 문제 방지 및 단순 파일화)
+          rm -rf external_studys_data/.git
+          
+          # 모든 파일 권한 대량 부여 (777)
+          chmod -R 777 external_studys_data
+          
+          echo "=== 📦 Mass Dependency Installation & Upgrade ==="
+          cd external_studys_data
+          
+          # Node.js 패키지 감지 및 설치
+          if [ -f "package.json" ]; then
+             echo "📦 Found Node.js Project. Installing & Upgrading..."
+             npm install
+             npm update
+          fi
+          
+          # Python 패키지 감지 및 설치
+          if [ -f "requirements.txt" ]; then
+             echo "🐍 Found Python Project. Installing & Upgrading..."
+             pip install -r requirements.txt --upgrade --user
+          fi
+          
+          # 하위 디렉토리 순회하며 설치 시도 (깊이 2단계)
+          find . -maxdepth 2 -name "package.json" -execdir npm install \;
+          
+          echo "✅ External Data Integration & Upgrade Complete."
 
-      # 3. 필수 패키지 설치
-      - name: Install Dependencies
-        run: sudo apt-get install -y pandoc sqlite3 zip tree
-
-      # 🟢 [기능 2] 서버 재기동 시뮬레이션 (Reboot Sequence)
-      - name: 🔄 Simulate Full Server Restart
+      # 🟢 [기능 3] 서버 재기동 및 서비스 초기화 시뮬레이션
+      - name: 🔄 System Reboot & Service Init
         run: |
-          ROOT="File_Server_Root"
-          BOOT_LOG="$ROOT/Boot/boot_sequence_$(date +%Y%m%d_%H%M%S).log"
-          
-          echo "=== 🛑 SERVER SHUTDOWN SEQUENCE ===" | tee -a "$BOOT_LOG"
-          echo "[$(date)] Stopping Nginx Service... [OK]" | tee -a "$BOOT_LOG"
-          echo "[$(date)] Stopping Database Engine... [OK]" | tee -a "$BOOT_LOG"
-          echo "[$(date)] Unmounting Data Volumes... [OK]" | tee -a "$BOOT_LOG"
-          echo "[$(date)] System Halted." | tee -a "$BOOT_LOG"
-          
-          echo "..."
-          sleep 2 # 재부팅 대기 시간 시뮬레이션
-          
-          echo "=== ⚡ SERVER BOOT SEQUENCE ===" | tee -a "$BOOT_LOG"
-          echo "[$(date)] Kernel Loaded (Linux 5.15.0-generic)" | tee -a "$BOOT_LOG"
-          echo "[$(date)] Checking File Systems (fsck)... [CLEAN]" | tee -a "$BOOT_LOG"
-          echo "[$(date)] Mounting Volumes... [OK]" | tee -a "$BOOT_LOG"
-          echo "[$(date)] Starting Services... [OK]" | tee -a "$BOOT_LOG"
-          echo "[$(date)] SYSTEM ONLINE." | tee -a "$BOOT_LOG"
-          
-          echo "✅ Reboot Simulation Complete."
+          LOG_DIR="System_Logs"
+          mkdir -p "$LOG_DIR"
+          BOOT_LOG="$LOG_DIR/system_boot_$(date +%Y%m%d_%H%M%S).log"
 
-      # 🟢 [기능 3] MB 단위 대용량 파일 생성 (Python Engine)
-      - name: Run Massive Data Generator
+          echo "=== 🛑 INITIATING SHUTDOWN SEQUENCE ===" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Stopping Web Services (Nginx/Apache)... [STOPPED]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Flushing Database Buffers to Disk... [DONE]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Unmounting Virtual Volumes... [OK]" | tee -a "$BOOT_LOG"
+          
+          # 재부팅 지연 시뮬레이션
+          sleep 3 
+          
+          echo "=== ⚡ INITIATING BOOT SEQUENCE ===" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Loading Kernel Modules... [OK]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Mounting External Data Volumes (Studys)... [MOUNTED]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Checking Integrity of Massive Data... [VERIFIED]" | tee -a "$BOOT_LOG"
+          echo "[$(date)] Starting Services (Web, DB, Auth)... [RUNNING]" | tee -a "$BOOT_LOG"
+          echo "✅ System Online."
+
+      # 🟢 [기능 4] 서비스별 대용량 데이터 분할 생성 (Python Engine)
+      - name: 🏭 Run Multi-Service Data Generator
         run: |
-          cat <<'EOF' > mega_processor.py
-          import os, random, datetime, shutil
+          cat <<'EOF' > mega_service_gen.py
+          import os, random, time, datetime, shutil
 
-          root_dir = "File_Server_Root"
-          data_dir = f"{root_dir}/Data"
+          # 기본 경로 설정
+          base_dir = "Service_Storage"
+          services = ["Web_Server", "DB_Cluster", "Auth_System", "Backup_Vault"]
           
-          # [1] 대용량 파일 생성 (Heavy Files)
-          print(">> Generating MB-Scale Files...")
-          # 10MB ~ 50MB 파일 5개 생성 (매번)
-          for i in range(5):
-              size_mb = random.randint(10, 50) 
-              fname = f"backup_part_{i}_{datetime.datetime.now().strftime('%H%M%S')}.dat"
-              fpath = f"{data_dir}/{fname}"
+          # 디렉토리 구조 생성
+          for svc in services:
+              os.makedirs(f"{base_dir}/{svc}", exist_ok=True)
+
+          print(">> 🚀 Starting Massive Data Generation per Service...")
+
+          # [1] 서비스별 데이터 분할 생성
+          total_generated_size = 0
+          
+          for svc in services:
+              # 서비스별로 3~5개의 대용량 파일 생성
+              file_count = random.randint(3, 5)
+              print(f"   -> Processing Service: {svc} ({file_count} files)")
               
-              # 더미 데이터 쓰기 (0으로 채움)
-              with open(fpath, "wb") as f:
-                  f.seek((size_mb * 1024 * 1024) - 1)
-                  f.write(b'\0')
-              
-              print(f" + Generated {fname} ({size_mb} MB)")
+              for i in range(file_count):
+                  # 파일 크기: 20MB ~ 60MB (랜덤)
+                  size_mb = random.randint(20, 60)
+                  fname = f"{svc}_data_{datetime.datetime.now().strftime('%H%M%S')}_{i}.bin"
+                  fpath = f"{base_dir}/{svc}/{fname}"
+                  
+                  # 더미 데이터 생성 (고속 쓰기)
+                  with open(fpath, "wb") as f:
+                      f.seek((size_mb * 1024 * 1024) - 1)
+                      f.write(b'\0')
+                  
+                  total_generated_size += size_mb
 
-          # [2] 디스크 사용량 분석
+          print(f"✅ Generated {total_generated_size} MB across {len(services)} services.")
+
+          # [2] 통합 대시보드 생성 (외부 데이터 포함)
+          def scan_files(start_dir):
+              file_list = []
+              for root, dirs, files in os.walk(start_dir):
+                  for file in files:
+                      path = os.path.join(root, file)
+                      size = os.path.getsize(path)
+                      file_list.append((file, path, size, os.path.getmtime(path)))
+              return file_list
+
+          # 내부 생성 파일 + 외부(Studys) 파일 스캔
+          local_files = scan_files(base_dir)
+          ext_files = scan_files("external_studys_data")
+          
+          all_files = sorted(local_files + ext_files, key=lambda x: x[3], reverse=True)[:50] # 최신 50개
+
+          # 디스크 정보
           total, used, free = shutil.disk_usage("/")
+          used_gb = used // (1024**3)
+          total_gb = total // (1024**3)
           used_percent = (used / total) * 100
-          
-          # [3] 웹 대시보드 생성 (게이지 바 포함)
-          def generate_dashboard():
-              files_html = ""
-              # 최신 파일 20개만 표시
-              all_files = []
-              for r, d, f in os.walk(root_dir):
-                  for file in f:
-                      all_files.append(os.path.join(r, file))
-              
-              all_files.sort(key=os.path.getmtime, reverse=True)
-              
-              for fpath in all_files[:30]:
-                  fname = os.path.basename(fpath)
-                  size = os.path.getsize(fpath)
-                  size_str = f"{size/1024/1024:.2f} MB" if size > 1024*1024 else f"{size/1024:.2f} KB"
-                  path_display = fpath.replace("File_Server_Root", "")
+
+          html_content = f"""
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <meta charset='utf-8'>
+              <title>Ultra Mega Server V10 Admin</title>
+              <style>
+                  body {{ background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 20px; }}
+                  .status-card {{ border: 1px solid #30363d; padding: 20px; border-radius: 6px; background: #161b22; margin-bottom: 20px; }}
+                  h1 {{ color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 10px; }}
+                  h3 {{ color: #7ee787; }}
                   
-                  icon = "📄"
-                  if fname.endswith(".log"): icon = "📜"
-                  if fname.endswith(".dat"): icon = "💾"
+                  /* Progress Bar */
+                  .progress-container {{ background: #30363d; height: 30px; border-radius: 15px; overflow: hidden; }}
+                  .progress-fill {{ background: linear-gradient(90deg, #238636, #3fb950); height: 100%; width: {used_percent}%; }}
                   
-                  files_html += f"""
-                  <tr>
-                      <td>{icon} {fname}</td>
-                      <td>{path_display}</td>
-                      <td><b>{size_str}</b></td>
-                      <td><a href='{fpath}' download>⬇️ Load</a></td>
-                  </tr>
-                  """
-
-              html = f"""
-              <!DOCTYPE html>
-              <html lang='ko'>
-              <head>
-                  <meta charset='utf-8'>
-                  <title>Mega Server V9</title>
-                  <style>
-                      body {{ background: #000; color: #0f0; font-family: 'Courier New', monospace; padding: 20px; }}
-                      .container {{ max-width: 1200px; margin: 0 auto; border: 2px solid #0f0; padding: 20px; box-shadow: 0 0 20px #0f0; }}
-                      h1 {{ text-align: center; border-bottom: 2px solid #0f0; }}
-                      
-                      /* Disk Usage Bar */
-                      .disk-box {{ margin: 20px 0; border: 1px solid #333; padding: 10px; background: #111; }}
-                      .progress-bg {{ background: #333; height: 25px; width: 100%; border-radius: 5px; overflow: hidden; }}
-                      .progress-bar {{ background: linear-gradient(90deg, #0f0, #ff0); height: 100%; width: {used_percent}%; transition: width 0.5s; }}
-                      
-                      table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                      th, td {{ border: 1px solid #0f0; padding: 10px; text-align: left; }}
-                      th {{ background: #002200; }}
-                      a {{ color: #0ff; text-decoration: none; }}
-                      
-                      .boot-log {{ background: #111; color: #aaa; padding: 10px; border: 1px solid #444; height: 150px; overflow-y: scroll; font-size: 0.9em; }}
-                  </style>
-              </head>
-              <body>
-                  <div class='container'>
-                      <h1>🖥️ MEGA SERVER STATUS: ONLINE</h1>
-                      
-                      <div class='disk-box'>
-                          <h3>💾 Disk Usage (Expanded Capacity)</h3>
-                          <div class='progress-bg'>
-                              <div class='progress-bar'></div>
-                          </div>
-                          <p>{used // (1024**3)} GB Used / {total // (1024**3)} GB Total ({used_percent:.1f}%)</p>
-                      </div>
-
-                      <div class='disk-box'>
-                          <h3>⚡ Last Reboot Sequence</h3>
-                          <div class='boot-log'>
-                              SYSTEM REBOOT INITIATED...<br>
-                              Stopping Services... [OK]<br>
-                              Unmounting... [OK]<br>
-                              Booting Kernel... [OK]<br>
-                              Filesystem Check... [PASSED]<br>
-                              Services Started... [OK]<br>
-                              System Ready at {datetime.datetime.now()}
-                          </div>
-                      </div>
-
-                      <h3>📂 Active Files (Top 30 Recent)</h3>
-                      <table>
-                          <tr><th>File</th><th>Path</th><th>Size</th><th>Action</th></tr>
-                          {files_html}
-                      </table>
+                  table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }}
+                  th {{ background: #21262d; color: #f0f6fc; text-align: left; padding: 10px; }}
+                  td {{ border-bottom: 1px solid #30363d; padding: 10px; }}
+                  a {{ color: #58a6ff; text-decoration: none; }}
+                  .tag {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; font-weight: bold; }}
+                  .tag-local {{ background: #1f6feb; color: white; }}
+                  .tag-ext {{ background: #d29922; color: black; }}
+              </style>
+          </head>
+          <body>
+              <div class="status-card">
+                  <h1>🖥️ SYSTEM STATUS: ONLINE (V10)</h1>
+                  <p><b>Last Reboot:</b> {datetime.datetime.now()}</p>
+                  
+                  <h3>💾 Storage Capacity (Expanded)</h3>
+                  <div class="progress-container">
+                      <div class="progress-fill"></div>
                   </div>
-              </body>
-              </html>
-              """
-              
-              with open("index.html", "w", encoding="utf-8") as f: f.write(html)
+                  <p style="text-align: right;">{used_gb} GB Used / {total_gb} GB Total ({used_percent:.1f}%)</p>
+              </div>
 
-          if __name__ == "__main__":
-              generate_dashboard()
+              <div class="status-card">
+                  <h3>📂 Data File Explorer (Top 50 Recent)</h3>
+                  <p>Includes Generated Service Data & External Repository (Studys)</p>
+                  <table>
+                      <thead><tr><th>Source</th><th>Filename</th><th>Size</th><th>Download</th></tr></thead>
+                      <tbody>
+          """
+
+          for fname, fpath, fsize, mtime in all_files:
+              size_str = f"{fsize/1024/1024:.2f} MB" if fsize > 1024*1024 else f"{fsize/1024:.2f} KB"
+              tag_class = "tag-ext" if "external_studys" in fpath else "tag-local"
+              tag_name = "EXT_REPO" if "external_studys" in fpath else "LOCAL_GEN"
+              
+              # 다운로드 링크 처리를 위해 상대 경로 계산
+              rel_path = os.path.relpath(fpath, os.getcwd())
+              
+              html_content += f"""
+                  <tr>
+                      <td><span class="tag {tag_class}">{tag_name}</span></td>
+                      <td>{fname} <br><span style="color:#8b949e; font-size:0.8em;">{rel_path}</span></td>
+                      <td>{size_str}</td>
+                      <td><a href="{rel_path}">⬇️ Access</a></td>
+                  </tr>
+              """
+
+          html_content += """
+                      </tbody>
+                  </table>
+              </div>
+          </body>
+          </html>
+          """
+
+          with open("index.html", "w", encoding="utf-8") as f:
+              f.write(html_content)
           EOF
           
-          python3 mega_processor.py
+          python3 mega_service_gen.py
 
-      # 4. 저장소 반영 (LFS 대용량 처리)
-      - name: Deploy to Repository
+      # 5. Git 반영 및 배포 (LFS 및 대량 파일 처리)
+      - name: 🚀 Sync & Deploy Everything
         run: |
-          echo "=== 🚀 Syncing Massive Data ==="
+          git config --global user.name "MegaServerBot"
+          git config --global user.email "bot@megaserver.internal"
+          
+          # Git LFS 설치 (대용량 파일 추적)
           git lfs install
-          git lfs track "*.dat" "*.log"
+          git lfs track "*.bin" "*.dat" "*.zip" "*.iso"
           
+          # 모든 변경사항 추가 (외부 리포지토리 파일 포함)
           git add .
-          git commit -m "Mega Server: Rebooted & MB Data Added [$(date)]" || echo "No changes"
-          git pull --rebase origin main || echo "Rebase Handled"
-          git push origin main || echo "Push Handled"
-
-      # 5. 릴리즈 패키징 (대용량 ZIP)
-      - name: Create Mega Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="v$(date +%Y.%m.%d-%H%M)"
-          ZIP_NAME="Server_Dump_${TAG}.zip"
-          zip -r "$ZIP_NAME" File_Server_Root index.html
           
-          gh release create "$TAG" "$ZIP_NAME" \
-            --title "Server Reboot $TAG" \
-            --notes "System rebooted. Capacity optimized. Massive files generated." \
-            --target main || echo "Release skipped"
+          # 커밋 및 푸시
+          git commit -m "🚀 Upgrade: V10 Capacity Max + Ext Repo Integration [$(date)]" || echo "No changes to commit"
+          git pull --rebase origin main || echo "Rebase handled"
+          git push origin main || echo "Push handled"
 
-      # 6. Pages 배포
+      # 6. GitHub Pages 배포
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build Pages
@@ -254,7 +279,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: mega-server-job
+    needs: ultra-server-ops
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
