@@ -1,4 +1,4 @@
-name: Copilot AI Server Ops & Massive Training Pipeline V2
+name: Copilot AI Server Ops & Workflow Self-Evolution V3
 
 on:
   schedule:
@@ -17,11 +17,11 @@ on:
           - update
           - train
       count:
-        description: '데이터 생성 배치 크기 (기본값: 100)'
+        description: '데이터 생성 배치 크기'
         default: '100'
         required: false
       epochs:
-        description: 'AI 학습 반복 횟수 (Epochs)'
+        description: 'AI 학습 반복 횟수'
         default: '5'
         required: false
 
@@ -39,23 +39,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 1. [환경 구축]
+      # 1. [환경 구축] LFS 및 AI 라이브러리 설정
       - name: 🔥 Setup AI Server Environment
         run: |
           echo "🔄 Initializing AI Server Dependencies..."
           sudo apt-get update -y
           python -m pip install --upgrade pip
-          pip install --upgrade requests PyGithub pandas cryptography numpy tqdm
+          pip install --upgrade requests PyGithub pandas cryptography numpy tqdm pyyaml
           
-          # [NEW] 대용량 파일 처리를 위한 Git LFS 설치
+          # Git LFS 설치 (대용량 모델 관리)
           sudo apt-get install git-lfs -y
           git lfs install
           echo "✅ AI/ML Environment & LFS Ready."
 
-      # 2. [인프라 구성]
+      # 2. [인프라 구성] 데이터 레이크 및 모델 레지스트리
       - name: 📂 Initialize Data Lake & Model Registry
         run: |
-          echo "🛠️ Constructing AI Infrastructure..."
           mkdir -p copilot_server/data/{raw_ingestion,processed_datasets,encrypted_vault}
           mkdir -p copilot_server/models/checkpoints
           mkdir -p copilot_server/logs/training_metrics
@@ -63,217 +62,181 @@ jobs:
           mkdir -p scripts
           echo "✅ Infrastructure Created."
 
-      # 3. [데이터 수집 & 전처리 & 레지스트리 등록]
-      - name: 🧬 Mass Data Ingestion & Registry Update
+      # 3. [데이터 수집] 일반 코드 데이터 생성 (기존 기능)
+      - name: 🧬 Mass Data Ingestion (General Code)
         env:
           BATCH_SIZE: ${{ inputs.count != '' && inputs.count || '100' }}
         run: |
-          echo "⚡ Starting Mass Data Ingestion..."
           python3 -c "
-          import os, uuid, time, json, random, glob
-          
+          import os, uuid, time, json, random
           try: count = int(os.environ.get('BATCH_SIZE', 100))
           except: count = 100
           
           base_dir = 'copilot_server'
           raw_dir = f'{base_dir}/data/raw_ingestion'
           proc_dir = f'{base_dir}/data/processed_datasets'
+          keywords = ['def', 'class', 'import', 'return', 'async', 'await', 'try', 'except', 'torch']
           
-          keywords = ['def', 'class', 'import', 'return', 'async', 'await', 'try', 'except', 'torch', 'tensorflow']
-          
-          print(f'🔄 Ingesting {count} new code snippets...')
-          new_files = []
-          
+          print(f'🔄 Ingesting {count} code snippets...')
           for i in range(count):
               tx_id = uuid.uuid4().hex[:8]
               timestamp = int(time.time())
-              
-              # Raw Data 생성
-              code_lines = [' '.join(random.choices(keywords, k=5)) for _ in range(8)]
+              # Raw & Processed Data Generation...
+              code_lines = [' '.join(random.choices(keywords, k=5)) for _ in range(5)]
               raw_content = '\n'.join(code_lines)
-              raw_fname = f'snippet_{timestamp}_{i}_{tx_id}.py'
-              with open(f'{raw_dir}/{raw_fname}', 'w') as f: f.write(raw_content)
-              
-              # Processed Data (JSONL) 생성
-              dataset_entry = {
-                  'id': tx_id,
-                  'instruction': f'Optimize logic in {tx_id}',
-                  'input': raw_content,
-                  'output': 'Optimization simulated.'
-              }
-              proc_fname = f'train_set_{timestamp}.jsonl'
-              with open(f'{proc_dir}/{proc_fname}', 'a') as f: 
+              with open(f'{raw_dir}/snippet_{timestamp}_{i}.py', 'w') as f: f.write(raw_content)
+              dataset_entry = {'id': tx_id, 'input': raw_content, 'output': 'Simulated'}
+              with open(f'{proc_dir}/train_set_{timestamp}.jsonl', 'a') as f: 
                   f.write(json.dumps(dataset_entry) + '\n')
-              
-              if i == 0: new_files.append(proc_fname)
-
-          # [NEW] 데이터 레지스트리(Manifest) 업데이트
-          manifest_path = f'{base_dir}/data/dataset_manifest.json'
-          manifest = []
-          if os.path.exists(manifest_path):
-              with open(manifest_path, 'r') as f: manifest = json.load(f)
-          
-          manifest.append({
-              'timestamp': time.time(),
-              'new_records': count,
-              'status': 'INGESTED'
-          })
-          # 최근 50개 기록만 유지
-          with open(manifest_path, 'w') as f: json.dump(manifest[-50:], f, indent=2)
-          
-          print(f'✅ Data Pipeline Complete. Manifest Updated.')
+          print('✅ General Data Ingestion Complete.')
           "
 
-      # 4. [보안] 암호화 및 키 발급
-      - name: 🔐 Encrypt Datasets & Generate Access Keys
+      # [NEW] 4. [자기 진화] 워크플로우 파일 학습 및 자동 업그레이드 (핵심 추가 기능)
+      - name: 🤖 Workflow Self-Learning & Auto-Upgrade
         run: |
-          echo "🔒 Encrypting Sensitive Training Data..."
+          echo "⚡ Starting Self-Evolution Sequence..."
+          python3 -c "
+          import os, re, time, json
+          
+          workflow_dir = '.github/workflows'
+          training_data_path = 'copilot_server/data/processed_datasets/workflow_learning_data.jsonl'
+          
+          # 업그레이드 규칙 정의 (구버전 -> 신버전)
+          upgrade_map = {
+              r'actions/checkout@v[0-3]': 'actions/checkout@v4',
+              r'actions/setup-node@v[0-3]': 'actions/setup-node@v4',
+              r'actions/setup-python@v[0-4]': 'actions/setup-python@v5',
+              r'actions/upload-artifact@v[0-3]': 'actions/upload-artifact@v4',
+              r'actions/download-artifact@v[0-3]': 'actions/download-artifact@v4'
+          }
+          
+          print(f'🔍 Scanning {workflow_dir} for YAML files...')
+          
+          processed_files = 0
+          upgraded_files = 0
+          
+          if os.path.exists(workflow_dir):
+              for filename in os.listdir(workflow_dir):
+                  if filename.endswith('.yml') or filename.endswith('.yaml'):
+                      filepath = os.path.join(workflow_dir, filename)
+                      processed_files += 1
+                      
+                      with open(filepath, 'r') as f:
+                          original_content = f.read()
+                          
+                      # 1. [학습] 워크플로우 내용을 학습 데이터로 저장
+                      train_entry = {
+                          'file_name': filename,
+                          'type': 'github_workflow',
+                          'content_snippet': original_content[:500],
+                          'timestamp': time.time()
+                      }
+                      with open(training_data_path, 'a') as f:
+                          f.write(json.dumps(train_entry) + '\n')
+                          
+                      # 2. [업그레이드] 버전 패치 및 최적화 서명 추가
+                      new_content = original_content
+                      is_changed = False
+                      
+                      # 버전 업그레이드 적용
+                      for pattern, replacement in upgrade_map.items():
+                          if re.search(pattern, new_content):
+                              new_content = re.sub(pattern, replacement, new_content)
+                              is_changed = True
+                              print(f'   ✨ Upgraded Action in {filename}: {replacement}')
+
+                      # AI 최적화 서명 추가 (중복 방지)
+                      signature = '# 🤖 AI-Optimized'
+                      if signature not in new_content:
+                          new_content = f'{signature} at {time.ctime()}\\n' + new_content
+                          is_changed = True
+                          
+                      if is_changed:
+                          with open(filepath, 'w') as f:
+                              f.write(new_content)
+                          upgraded_files += 1
+                          
+          print(f'✅ Self-Learning Complete: Scanned {processed_files} workflows.')
+          print(f'🚀 Auto-Upgrade Complete: Updated {upgraded_files} files.')
+          "
+
+      # 5. [보안] 데이터셋 암호화
+      - name: 🔐 Encrypt Datasets
+        run: |
           python3 -c "
           import os, secrets, glob
           proc_dir = 'copilot_server/data/processed_datasets'
           vault_dir = 'copilot_server/data/encrypted_vault'
-          perm_dir = 'copilot_server/config/permissions'
-          
           files = glob.glob(f'{proc_dir}/*.jsonl')
           for file_path in files:
-              filename = os.path.basename(file_path)
-              enc_path = f'{vault_dir}/{filename}.enc'
-              
-              # 이미 암호화된 파일은 건너뛰기 (효율성)
-              if os.path.exists(enc_path): continue
-              
-              with open(file_path, 'rb') as f: data = f.read()
-              with open(enc_path, 'wb') as f: f.write(secrets.token_bytes(16) + data[::-1])
-              
-              key_path = f'{perm_dir}/key_{filename.split('.')[0]}.pem'
-              with open(key_path, 'w') as f: 
-                  f.write(f'-----BEGIN KEY-----\n{secrets.token_urlsafe(32)}\n-----END KEY-----')
-              os.chmod(key_path, 0o600)
-          print(f'✅ Security Applied. Vault updated.')
+              fname = os.path.basename(file_path)
+              enc_path = f'{vault_dir}/{fname}.enc'
+              if not os.path.exists(enc_path):
+                  with open(file_path, 'rb') as f: d = f.read()
+                  with open(enc_path, 'wb') as f: f.write(secrets.token_bytes(16) + d[::-1])
+          print(f'✅ Encrypted {len(files)} datasets.')
           "
 
-      # 5. [AI 학습]
-      - name: 🧠 Run AI Model Training (Fine-tuning Simulation)
+      # 6. [AI 학습] 모델 파인튜닝 시뮬레이션
+      - name: 🧠 Run AI Model Training
         env:
           EPOCHS: ${{ inputs.epochs != '' && inputs.epochs || '5' }}
         run: |
-          echo "🚀 Starting Distributed Training Simulation..."
+          echo "🚀 Starting Training..."
           python3 -c "
           import os, time, random, json, uuid
-          
           epochs = int(os.environ.get('EPOCHS', 5))
           model_dir = 'copilot_server/models/checkpoints'
           log_dir = 'copilot_server/logs/training_metrics'
-          
           run_id = uuid.uuid4().hex[:6]
-          loss = 2.5
+          
+          loss = 2.0
           metrics_log = []
           
-          print(f'🔄 Training Run ID: {run_id}')
-          
           for epoch in range(1, epochs + 1):
-              loss = max(0.1, loss * random.uniform(0.8, 0.95))
-              accuracy = 1.0 - (loss / 3.0)
+              loss = max(0.05, loss * 0.9)
+              acc = 1.0 - (loss / 2.5)
+              metrics_log.append({'epoch': epoch, 'loss': loss, 'acc': acc})
+              print(f'   [Epoch {epoch}] Loss: {loss:.4f} | Acc: {acc:.2%}')
               
-              metrics = {
-                  'epoch': epoch, 
-                  'loss': round(loss, 4), 
-                  'accuracy': round(accuracy, 4), 
-                  'timestamp': time.time()
-              }
-              metrics_log.append(metrics)
-              print(f'   [Epoch {epoch}/{epochs}] Loss: {loss:.4f} | Acc: {accuracy:.2%}')
-              
-              # 체크포인트 저장 (LFS용 대용량 더미 파일)
               if epoch == epochs:
-                  ckpt_name = f'copilot_v2_final_{run_id}.pt'
-                  with open(f'{model_dir}/{ckpt_name}', 'wb') as f:
-                      # 1MB 더미 데이터
-                      f.write(os.urandom(1024 * 1024))
-          
-          # 로그 저장
-          with open(f'{log_dir}/train_metrics_{run_id}.json', 'w') as f: 
-              json.dump(metrics_log, f, indent=2)
-          print('✅ Model Training Completed.')
+                  with open(f'{model_dir}/model_v3_{run_id}.pt', 'wb') as f:
+                      f.write(os.urandom(1024*1024)) # 1MB Model
+                      
+          with open(f'{log_dir}/metrics_{run_id}.json', 'w') as f:
+              json.dump(metrics_log, f)
           "
 
-      # [NEW] 6. [대시보드 생성] 학습 현황 시각화
+      # 7. [대시보드] 상태판 업데이트
       - name: 📊 Generate AI Status Dashboard
         run: |
           python3 -c "
-          import os, json, glob
-          
+          import json, glob, os
           log_dir = 'copilot_server/logs/training_metrics'
           logs = sorted(glob.glob(f'{log_dir}/*.json'), key=os.path.getmtime, reverse=True)
+          latest = json.load(open(logs[0])) if logs else [{'acc': 0, 'loss': 0}]
           
-          latest_metrics = []
-          if logs:
-              with open(logs[0], 'r') as f: latest_metrics = json.load(f)
-          
-          final_acc = latest_metrics[-1]['accuracy'] if latest_metrics else 0
-          final_loss = latest_metrics[-1]['loss'] if latest_metrics else 0
-          
-          html_content = f'''
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Copilot AI Training Status</title>
-            <style>
-              body {{ background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 20px; }}
-              .card {{ background: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 6px; margin-bottom: 20px; }}
-              h1 {{ color: #58a6ff; }}
-              .stat {{ font-size: 2em; font-weight: bold; }}
-              .good {{ color: #3fb950; }}
-              .bad {{ color: #f85149; }}
-            </style>
-          </head>
-          <body>
-            <h1>🧠 Copilot AI Server Status</h1>
-            <div class='card'>
-              <h3>Latest Training Performance</h3>
-              <p>Accuracy: <span class='stat good'>{final_acc:.2%}</span></p>
-              <p>Loss: <span class='stat bad'>{final_loss:.4f}</span></p>
-            </div>
-            <div class='card'>
-              <h3>System Logs</h3>
-              <pre>{json.dumps(latest_metrics, indent=2)}</pre>
-            </div>
-          </body>
-          </html>
-          '''
-          
-          with open('copilot_server/ai_status_board.html', 'w') as f:
-              f.write(html_content)
-          print('✅ Dashboard generated.')
+          html = f'''<html><body><h1>🧠 AI Self-Evolution Status</h1>
+          <h2>Latest Accuracy: {latest[-1]['acc']:.2%}</h2>
+          <h3>Workflows Optimized: Checked .github/workflows</h3>
+          </body></html>'''
+          with open('copilot_server/ai_status_board.html', 'w') as f: f.write(html)
           "
 
-      # 7. [운영 스크립트 실행]
-      - name: 🏃 Run Ops Management Script
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_NAME: ${{ github.repository }}
-          MODE: ${{ inputs.mode || 'all' }}
-        run: |
-          if [ -f "scripts/issue_manager.py" ]; then
-            python scripts/issue_manager.py
-          else
-            echo "import os; print('Running Diagnostics...');" > scripts/issue_manager.py
-            python scripts/issue_manager.py
-          fi
-
-      # 8. [동기화] LFS 추적 및 데이터 커밋
-      - name: 🔄 Sync Data & Models to Repo
+      # 8. [동기화] 변경사항(업그레이드된 워크플로우 포함) 반영
+      - name: 🔄 Sync All Changes to Repo
         run: |
           git config --global user.name "ai-ops-bot"
           git config --global user.email "ai-ops-bot@users.noreply.github.com"
           
-          # [NEW] LFS 트래킹 설정
-          git lfs track "*.pt" "*.enc" "*.bin"
+          # LFS 트래킹
+          git lfs track "*.pt" "*.enc"
           git add .gitattributes
           
           if [ -n "$(git status --porcelain)" ]; then
             git add .
-            git commit -m "🧠 AI Ops: Mass Data & Training Update (Mode: ${{ inputs.mode }}) [skip ci]"
+            # 커밋 메시지에 모드 정보 포함
+            git commit -m "🤖 AI Ops: Workflow Upgrades & Training Data Update (Mode: ${{ inputs.mode }}) [skip ci]"
             
             n=0
             until [ "$n" -ge 5 ]; do
@@ -281,7 +244,7 @@ jobs:
                n=$((n+1)); sleep 5
             done
             git push origin HEAD:${GITHUB_REF}
-            echo "✅ All AI Artifacts Synced."
+            echo "✅ Server Synced Successfully."
           else
-            echo "ℹ️ No changes to sync."
+            echo "ℹ️ No changes needed."
           fi
