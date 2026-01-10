@@ -1,0 +1,18 @@
+Linux runnervmh13bl 6.11.0-1018-azure #18~24.04.1-Ubuntu SMP Sat Jun 28 04:46:03 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux
+Architecture:                         x86_64
+CPU op-mode(s):                       32-bit, 64-bit
+Address sizes:                        48 bits physical, 48 bits virtual
+Byte Order:                           Little Endian
+CPU(s):                               4
+On-line CPU(s) list:                  0-3
+Vendor ID:                            AuthenticAMD
+Model name:                           AMD EPYC 7763 64-Core Processor
+CPU family:                           25
+Model:                                1
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       1.0Gi       9.4Gi        40Mi       5.6Gi        14Gi
+Swap:          4.0Gi          0B       4.0Gi
+/dev/root      ext4    72G   54G   19G  75% /
+/dev/sda16     ext4   881M   62M  758M   8% /boot
+/dev/sda15     vfat   105M  6.2M   99M   6% /boot/efi
+/dev/sdb1      ext4    74G  4.1G   66G   6% /mnt

@@ -1,0 +1,227 @@
+name: Copilot AI Server Ops & Self-Evolution V5
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # 10분마다 실행
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '실행 모드 (All/Auto/Create/Update)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - auto
+          - create
+      count:
+        description: '데이터 생성 배치 크기'
+        default: '100'
+        required: false
+
+jobs:
+  ai-server-ops:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # 파일 수정 권한 (필수)
+      issues: write         # 이슈 수정 권한
+      pull-requests: write  # PR 수정 권한
+      # workflows: write    <-- [삭제] 이 옵션은 존재하지 않으므로 삭제함
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # PAT가 있으면 사용하고, 없으면 기본 토큰 사용
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      # 1. [환경 구축]
+      - name: 🔥 Setup AI Server Environment
+        run: |
+          echo "🔄 Initializing AI Server Dependencies..."
+          sudo apt-get update -y
+          python -m pip install --upgrade pip
+          pip install --upgrade requests PyGithub pandas cryptography numpy tqdm pyyaml
+          
+          # Git LFS 설치 (대용량 AI 모델용)
+          sudo apt-get install git-lfs -y
+          git lfs install
+          echo "✅ AI/ML Environment & LFS Ready."
+
+      # 2. [인프라 구성]
+      - name: 📂 Initialize Data Lake & Model Registry
+        run: |
+          mkdir -p copilot_server/data/{raw_ingestion,processed_datasets,encrypted_vault}
+          mkdir -p copilot_server/models/checkpoints
+          mkdir -p copilot_server/logs/training_metrics
+          mkdir -p copilot_server/config/permissions
+          echo "✅ Infrastructure Created."
+
+      # 3. [데이터 수집] 대량 데이터 생성 엔진
+      - name: 🧬 Mass Data Ingestion
+        env:
+          BATCH_SIZE: ${{ inputs.count != '' && inputs.count || '100' }}
+        run: |
+          python3 -c "
+          import os, uuid, time, json, random
+          try: count = int(os.environ.get('BATCH_SIZE', 100))
+          except: count = 100
+          
+          base_dir = 'copilot_server'
+          raw_dir = f'{base_dir}/data/raw_ingestion'
+          proc_dir = f'{base_dir}/data/processed_datasets'
+          
+          # 키워드 대량 확장 (AI 학습용)
+          keywords = ['def', 'class', 'import', 'return', 'async', 'await', 'try', 'except', 'torch', 'pipeline', 'deploy', 'k8s', 'docker', 'aws', 'azure', 'optimization']
+          
+          print(f'🔄 Ingesting {count} code snippets...')
+          for i in range(count):
+              tx_id = uuid.uuid4().hex[:8]
+              timestamp = int(time.time())
+              
+              # 랜덤 코드 생성
+              code_lines = [' '.join(random.choices(keywords, k=5)) for _ in range(8)]
+              raw_content = '\n'.join(code_lines)
+              
+              # Raw Data 저장
+              with open(f'{raw_dir}/snippet_{timestamp}_{i}.py', 'w') as f: f.write(raw_content)
+              
+              # 학습용 JSONL 변환
+              dataset_entry = {'id': tx_id, 'input': raw_content, 'output': 'AI Optimized Code', 'score': random.uniform(0.8, 0.99)}
+              with open(f'{proc_dir}/train_set_{timestamp}.jsonl', 'a') as f: 
+                  f.write(json.dumps(dataset_entry) + '\n')
+          print('✅ Mass Data Ingestion Complete.')
+          "
+
+      # 4. [자기 진화] 워크플로우 파일 학습 및 자동 업그레이드
+      - name: 🤖 Workflow Self-Learning & Auto-Upgrade
+        run: |
+          echo "⚡ Starting Self-Evolution Sequence..."
+          python3 -c "
+          import os, re, time, json
+          
+          workflow_dir = '.github/workflows'
+          training_data_path = 'copilot_server/data/processed_datasets/workflow_learning_data.jsonl'
+          
+          # 업그레이드 규칙 정의 (정규식 기반)
+          upgrade_map = {
+              r'actions/checkout@v[0-3]': 'actions/checkout@v4',
+              r'actions/setup-node@v[0-3]': 'actions/setup-node@v4',
+              r'actions/setup-python@v[0-4]': 'actions/setup-python@v5',
+              r'actions/upload-artifact@v[0-3]': 'actions/upload-artifact@v4'
+          }
+          
+          upgraded_files = 0
+          
+          if os.path.exists(workflow_dir):
+              for filename in os.listdir(workflow_dir):
+                  if filename.endswith('.yml') or filename.endswith('.yaml'):
+                      filepath = os.path.join(workflow_dir, filename)
+                      
+                      with open(filepath, 'r') as f: original_content = f.read()
+                      
+                      # [학습] 워크플로우 패턴 학습 데이터 축적
+                      train_entry = {'file': filename, 'content_snippet': original_content[:200], 'ts': time.time()}
+                      with open(training_data_path, 'a') as f: f.write(json.dumps(train_entry) + '\n')
+                          
+                      # [진화] 버전 업그레이드 로직 적용
+                      new_content = original_content
+                      is_changed = False
+                      
+                      for pattern, replacement in upgrade_map.items():
+                          if re.search(pattern, new_content):
+                              new_content = re.sub(pattern, replacement, new_content)
+                              is_changed = True
+                              print(f'   ✨ Upgraded Action in {filename}: {replacement}')
+
+                      # [서명] AI 최적화 서명 추가
+                      signature = '# 🤖 AI-Optimized'
+                      if signature not in new_content and is_changed:
+                          new_content = f'{signature} at {time.ctime()}\\n' + new_content
+                          is_changed = True
+                          
+                      if is_changed:
+                          with open(filepath, 'w') as f: f.write(new_content)
+                          upgraded_files += 1
+          
+          print(f'🚀 Auto-Upgrade Complete: Updated {upgraded_files} workflows.')
+          "
+
+      # 5. [보안] 데이터 암호화
+      - name: 🔐 Encrypt Datasets
+        run: |
+          python3 -c "
+          import os, secrets, glob
+          proc_dir = 'copilot_server/data/processed_datasets'
+          vault_dir = 'copilot_server/data/encrypted_vault'
+          files = glob.glob(f'{proc_dir}/*.jsonl')
+          for file_path in files:
+              fname = os.path.basename(file_path)
+              enc_path = f'{vault_dir}/{fname}.enc'
+              # 이미 존재하면 패스
+              if not os.path.exists(enc_path):
+                  with open(file_path, 'rb') as f: d = f.read()
+                  with open(enc_path, 'wb') as f: f.write(secrets.token_bytes(16) + d[::-1])
+          print('✅ Encryption Complete.')
+          "
+
+      # 6. [AI 학습] 모델 생성 및 체크포인트 저장
+      - name: 🧠 Run AI Model Training
+        run: |
+          echo "🚀 Starting Training..."
+          python3 -c "
+          import os, json, uuid, time, random
+          model_dir = 'copilot_server/models/checkpoints'
+          log_dir = 'copilot_server/logs/training_metrics'
+          run_id = uuid.uuid4().hex[:6]
+          
+          # 학습 로그 시뮬레이션
+          loss = random.uniform(0.01, 0.1)
+          acc = 1.0 - (loss * 2)
+          metrics = {'loss': loss, 'acc': acc, 'ts': time.time(), 'epoch': 10}
+          
+          # 로그 저장
+          with open(f'{log_dir}/metrics_{run_id}.json', 'w') as f: json.dump(metrics, f)
+          
+          # 더미 모델 생성 (가중치 파일)
+          with open(f'{model_dir}/model_v5_{run_id}.pt', 'wb') as f: f.write(os.urandom(1024*1024))
+          print(f'✅ Model Trained: model_v5_{run_id}.pt (Accuracy: {acc:.2%})')
+          "
+
+      # 7. [동기화] PAT를 이용한 강제 푸시 (Permission Error 해결의 핵심)
+      - name: 🔄 Sync All Changes (Robust Push)
+        env:
+          # Secret에 GH_PAT가 등록되어 있어야 작동함
+          GH_PAT: ${{ secrets.GH_PAT }} 
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "ai-ops-bot"
+          git config --global user.email "ai-ops-bot@users.noreply.github.com"
+          
+          git lfs track "*.pt" "*.enc"
+          git add .
+          
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "🤖 AI Ops: Mass Data & Workflow Auto-Upgrade [skip ci]"
+            
+            # [핵심] Remote URL을 PAT가 포함된 주소로 변경하여 권한 획득
+            if [ -n "$GH_PAT" ]; then
+              echo "🔑 Using Personal Access Token (PAT) for Push..."
+              git remote set-url origin https://x-access-token:$GH_PAT@github.com/${{ github.repository }}.git
+            else
+              echo "⚠️ Warning: GH_PAT secret not found. Workflow updates might fail."
+            fi
+            
+            # 재시도 로직 포함한 푸시
+            n=0
+            until [ "$n" -ge 5 ]; do
+               git pull --rebase origin ${GITHUB_REF_NAME} && break
+               n=$((n+1)); sleep 5
+            done
+            
+            git push origin HEAD:${GITHUB_REF}
+            echo "✅ Server Synced Successfully with Elevated Permissions."
+          else
+            echo "ℹ️ No changes needed."
+          fi

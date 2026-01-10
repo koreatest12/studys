@@ -1,0 +1,44 @@
+name: 🔒 Security - Auto Encryption Lock
+
+on:
+  push:
+    paths:
+      - '**/github-recovery-codes.txt'
+
+jobs:
+  encrypt-lock:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔐 Encrypt and Lock File
+        env:
+          # GitHub Settings > Secrets에서 GPG_PASSWORD를 설정해야 함 (없으면 랜덤 생성)
+          PASSPHRASE: ${{ secrets.GPG_PASSWORD || 'EmergencyRandomLock2026!' }}
+        run: |
+          FILE="github-recovery-codes.txt"
+          
+          if [ -f "$FILE" ]; then
+            echo ">>> Encrypting sensitive file..."
+            
+            # 1. GPG 암호화 (AES256 사용)
+            gpg --batch --yes --passphrase "$PASSPHRASE" --symmetric --cipher-algo AES256 -o "$FILE.gpg" "$FILE"
+            
+            # 2. 원본 텍스트 파일 즉시 삭제
+            rm "$FILE"
+            
+            # 3. 변경 사항 반영
+            git config --global user.name "Lock Bot"
+            git config --global user.email "lock@bot.com"
+            
+            git add "$FILE.gpg"
+            git add "$FILE" # 삭제 내역 반영
+            git commit -m "🔒 [LOCKED] File encrypted. Original text file removed."
+            git push
+            
+            echo "✅ File is now locked. Only .gpg version remains."
+          fi

@@ -1,0 +1,86 @@
+name: Server Upgrade & Ops Master
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # 10분마다 실행
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '실행 모드'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - create
+          - update
+      count:
+        description: '작업 수량'
+        default: '10'
+        required: false
+
+jobs:
+  server-ops:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # [서버 업그레이드 기능]
+      - name: 🔥 Upgrade Server Environment
+        run: |
+          echo "Checking for system updates..."
+          sudo apt-get update -y
+          
+          echo "Upgrading Core Dependencies..."
+          python -m pip install --upgrade pip
+          pip install --upgrade PyGithub pandas requests
+          
+          echo "✅ Server Environment Upgraded Successfully."
+
+      - name: Run Ops Script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          # 스케줄 실행 시 'auto', 수동 실행 시 입력값
+          MODE: ${{ github.event_name == 'schedule' && 'auto' || inputs.mode }}
+          # [수정됨] 스케줄 실행 시 inputs가 없으므로 '10' 기본값 강제 지정, 수동 실행 시 입력값
+          COUNT: ${{ github.event_name == 'schedule' && '10' || inputs.count }}
+        run: |
+          if [ -f "scripts/issue_manager.py" ]; then
+            python scripts/issue_manager.py
+          else
+            echo "❌ Script not found!"
+            exit 1
+          fi
+
+      - name: Sync & Push to Server (Robust)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "🚀 Server Upgrade & Auto-Update [skip ci]"
+            
+            # 충돌 방지 재시도 루프 (최대 5회)
+            n=0
+            until [ "$n" -ge 5 ]
+            do
+               echo "🔄 Syncing with remote server (Attempt $((n+1)))..."
+               git pull --rebase origin ${GITHUB_REF_NAME} && break
+               n=$((n+1))
+               sleep 5
+            done
+            
+            git push origin HEAD:${GITHUB_REF}
+            echo "✅ Server Sync Completed."
+          else
+            echo "ℹ️ No changes needed."
+          fi
