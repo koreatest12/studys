@@ -1,0 +1,173 @@
+name: 🛡️ Ultra-Precision Ops (Recursive & Auto-Retry)
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # 30분마다 정기 점검
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '실행 모드'
+        default: 'Full-Scan'
+        type: choice
+        options:
+          - Full-Scan
+          - Process-All-Files
+          - Auto-Fix
+      retry_count:
+        description: '재시도 횟수 (시스템 내부용)'
+        default: '0'
+        required: false
+
+jobs:
+  ultra-ops:
+    name: 🚀 File Processor & Auto-Recovery
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+      issues: write
+
+    steps:
+      # 1. [초정밀 디스크 정리] 실행 전 최대 공간 확보 (20GB+)
+      - name: 🧹 Deep Clean & Disk Recovery
+        run: |
+          echo "⚠️ Initial Disk Space:"
+          df -h
+          echo "🧹 Removing heavy unused packages..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo docker image prune --all --force
+          echo "✅ Disk Space Optimized:"
+          df -h
+
+      # 2. [저장소 체크아웃] koreatest12/studys 대응
+      - name: 📥 Checkout Target Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 3. [환경 설정]
+      - name: 🔥 Setup Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: 📦 Install Dependencies
+        run: pip install psutil requests cryptography
+
+      # 4. [핵심 로직] 전수 파일 처리 및 디스크 감지 (Smart Script)
+      - name: 🧠 Process Files & Handle Failures
+        id: processor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RETRY_COUNT: ${{ inputs.retry_count }}
+          REPO_NAME: ${{ github.repository }} # koreatest12/studys 자동 인식
+        run: |
+          python3 -c "
+          import os
+          import time
+          import shutil
+          import sys
+          import json
+          from pathlib import Path
+
+          # === 설정 ===
+          MIN_FREE_SPACE_MB = 800  # 최소 여유 공간 (이보다 적으면 중단)
+          REPO_ROOT = '.'
+          PROCESSED_LOG = 'processed_files.log'
+          
+          print(f'🚀 Starting Ultra-Precision Processing on: {os.environ.get(\'REPO_NAME\')}')
+
+          # 이미 처리된 파일 목록 로드 (중단 후 이어하기 기능)
+          processed_files = set()
+          if os.path.exists(PROCESSED_LOG):
+              with open(PROCESSED_LOG, 'r') as f:
+                  processed_files = set(f.read().splitlines())
+          
+          files_to_process = []
+          # === [요청 1] 모든 파일 및 폴더 재귀 탐색 ===
+          for root, dirs, files in os.walk(REPO_ROOT):
+              if '.git' in root: continue # .git 폴더 제외
+              
+              for file in files:
+                  full_path = os.path.join(root, file)
+                  if full_path not in processed_files:
+                      files_to_process.append(full_path)
+
+          print(f'🔍 Found {len(files_to_process)} new files to process.')
+
+          # === 작업 수행 ===
+          stop_signal = False
+          
+          for idx, file_path in enumerate(files_to_process):
+              # 1. 디스크 용량 체크 (실시간)
+              total, used, free = shutil.disk_usage('/')
+              free_mb = free // (1024 * 1024)
+              
+              if free_mb < MIN_FREE_SPACE_MB:
+                  print(f'⚠️ [SPACE WARNING] Only {free_mb}MB left. Stopping explicitly to trigger retry.')
+                  stop_signal = True
+                  break
+              
+              # 2. [기능 추가] 각 파일에 대한 정밀 처리 로직 (예: 분석, 로깅, 변환)
+              try:
+                  # (여기서 실제 파일 처리 로직 수행)
+                  # 예: 메타데이터 추출 시뮬레이션
+                  file_size = os.path.getsize(file_path)
+                  # print(f'   Processing: {file_path} ({file_size} bytes)')
+                  
+                  # 처리 완료 기록
+                  with open(PROCESSED_LOG, 'a') as log:
+                      log.write(f'{file_path}\n')
+                      
+              except Exception as e:
+                  print(f'❌ Error processing {file_path}: {e}')
+                  continue
+
+          # === 결과 처리 및 재수행 트리거 결정 ===
+          if stop_signal:
+              # GitHub Actions Output 변수 설정 (다음 단계에서 감지)
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+                  print('needs_retry=true', file=fh)
+              print('🛑 Execution paused due to disk limits. Requesting re-run.')
+          else:
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+                  print('needs_retry=false', file=fh)
+              print('✅ All tasks completed successfully.')
+          "
+
+      # 5. [결과 저장] 처리된 내역 및 로그 커밋
+      - name: 💾 Save Progress (Checkpoint)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git add processed_files.log
+          # 변경사항이 있을 때만 커밋
+          git diff --quiet && git diff --staged --quiet || (git commit -m "💾 Save processing checkpoint [skip ci]" && git push)
+
+      # 6. [요청 2] 실패/중단 시 자동 재수행 (Self-Healing Trigger)
+      - name: 🔄 Trigger Auto-Retry (If Needed)
+        if: steps.processor.outputs.needs_retry == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_RETRY: ${{ inputs.retry_count }}
+        run: |
+          # 무한 루프 방지를 위해 최대 10회까지만 재시도
+          MAX_RETRIES=10
+          NEXT_RETRY=$(($CURRENT_RETRY + 1))
+          
+          if [ "$NEXT_RETRY" -le "$MAX_RETRIES" ]; then
+            echo "⚠️ Disk limit reached. Triggering auto-retry #${NEXT_RETRY}..."
+            
+            # 워크플로우를 다시 실행 (입력값 전달)
+            gh workflow run "${{ github.workflow }}" -f mode="Process-All-Files" -f retry_count="$NEXT_RETRY"
+            
+            echo "✅ Re-run triggered successfully."
+          else
+            echo "❌ Max retries ($MAX_RETRIES) reached. Stopping to prevent loop."
+            exit 1
+          fi
