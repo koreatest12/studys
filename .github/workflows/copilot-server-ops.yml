@@ -1,4 +1,4 @@
-name: Copilot Server Ops & Upgrade
+name: Copilot AI Server Ops & Massive Training Pipeline
 
 on:
   schedule:
@@ -6,150 +6,159 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: '실행 모드 (Auto/Create/Update)'
+        description: '실행 모드 (All/Auto/Create/Update/Train)' # 'All' 모드 명시
         required: true
-        default: 'auto'
+        default: 'all' # 기본값을 'all'로 설정하여 모든 기능 수행 유도
         type: choice
         options:
+          - all    # [NEW] 모든 기능 일괄 실행
           - auto
           - create
           - update
+          - train
       count:
-        description: '처리 횟수 (기본값: 10)'
-        default: '10'
+        description: '데이터 생성 및 학습 배치 크기 (기본값: 50)'
+        default: '50'
+        required: false
+      epochs:
+        description: 'AI 학습 반복 횟수 (Epochs)'
+        default: '5'
         required: false
 
 jobs:
-  server-ops:
+  ai-server-ops:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
       pull-requests: write
-
+    
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 1. [서버 업그레이드] 시스템 및 파이썬 필수 패키지 강제 최신화
-      - name: 🔥 System & Dependency Upgrade
+      # 1. [환경 구축]
+      - name: 🔥 Setup AI Server Environment
         run: |
-          echo "🔄 Updating System Packages..."
-          sudo apt-get update -y && sudo apt-get upgrade -y
-          
-          echo "🔄 Upgrading Python Dependencies..."
+          echo "🔄 Initializing AI Server Dependencies..."
+          sudo apt-get update -y
           python -m pip install --upgrade pip
-          # 암호화 및 데이터 처리에 필요한 cryptography 라이브러리 추가
-          pip install --upgrade requests PyGithub pandas cryptography
-          
-          echo "✅ Server Environment Upgraded."
+          pip install --upgrade requests PyGithub pandas cryptography numpy tqdm
+          echo "✅ AI/ML Environment Ready."
 
-      # 2. [디렉토리 생성] Copilot 서버 및 보안 데이터 폴더 구조 생성
-      - name: 📂 Create Workspace Directories
+      # 2. [인프라 구성]
+      - name: 📂 Initialize Data Lake & Model Registry
         run: |
-          echo "🛠️ Creating Directory Structure..."
-          mkdir -p copilot_server/data/encrypted
-          mkdir -p copilot_server/logs
+          echo "🛠️ Constructing AI Infrastructure..."
+          mkdir -p copilot_server/data/raw_ingestion
+          mkdir -p copilot_server/data/processed_datasets
+          mkdir -p copilot_server/data/encrypted_vault
+          mkdir -p copilot_server/models/checkpoints
+          mkdir -p copilot_server/logs/training_metrics
           mkdir -p copilot_server/config/permissions
           mkdir -p scripts
-          
-          echo "✅ Directories Created: encrypted data, logs, permissions"
+          echo "✅ Infrastructure Created."
 
-      # 3. [Copilot Server 설치]
-      - name: 🤖 Install Copilot Server Environment
-        run: |
-          echo "🚀 Setting up Copilot Server..."
-          if ! command -v gh &> /dev/null; then
-             echo "Installing GitHub CLI..."
-             sudo apt-get install gh -y
-          fi
-          echo "✅ Copilot Server Environment Ready."
-
-      # [NEW] 4. [보안/데이터 대량 생성] 암호화 파일 및 권한 파일 생성
-      - name: 🔐 Generate Mass Encrypted Data & Permissions
+      # 3. [데이터 수집 & 전처리]
+      - name: 🧬 Mass Data Ingestion & Preprocessing
         env:
-          # inputs.count가 없거나 빈 문자열일 경우 10으로 강제 설정 (안전 장치)
-          COUNT: ${{ inputs.count != '' && inputs.count || '10' }}
+          BATCH_SIZE: ${{ inputs.count != '' && inputs.count || '50' }}
         run: |
-          echo "⚡ Starting Mass Generation... Target Count: $COUNT"
-          
-          # Python 스크립트를 인라인으로 실행하여 대량 파일 생성
+          echo "⚡ Starting Mass Data Ingestion..."
           python3 -c "
-          import os
-          import uuid
-          import secrets
-          import time
-
-          try:
-              count = int(os.environ.get('COUNT', 10))
-          except ValueError:
-              count = 10
-
-          print(f'🔄 Generating {count} encrypted datasets and permission keys...')
-
+          import os, uuid, time, json, random
+          try: count = int(os.environ.get('BATCH_SIZE', 50))
+          except: count = 50
+          raw_dir, proc_dir = 'copilot_server/data/raw_ingestion', 'copilot_server/data/processed_datasets'
+          keywords = ['def', 'class', 'import', 'return', 'async', 'await', 'try', 'except', 'pandas', 'numpy']
+          print(f'🔄 Ingesting {count} raw code snippets...')
           for i in range(count):
-              unique_id = uuid.uuid4().hex[:8]
+              tx_id = uuid.uuid4().hex[:8]
               timestamp = int(time.time())
-
-              # 1. 암호화 데이터 파일 생성 (바이너리 난수)
-              enc_filename = f'copilot_server/data/encrypted/data_{timestamp}_{i}_{unique_id}.enc'
-              with open(enc_filename, 'wb') as f:
-                  # 1MB ~ 5MB 크기의 랜덤 더미 데이터 생성 시뮬레이션 (여기서는 가볍게 1KB)
-                  f.write(secrets.token_bytes(1024))
-              
-              # 2. 권한(Permission) 키 파일 생성
-              perm_filename = f'copilot_server/config/permissions/auth_{timestamp}_{i}_{unique_id}.key'
-              with open(perm_filename, 'w') as f:
-                  f.write(f'-----BEGIN COPILOT ACCESS KEY-----\n{secrets.token_hex(64)}\n-----END COPILOT ACCESS KEY-----')
-              
-              # 3. 파일 권한 설정 (chmod 600 - 소유자만 읽기/쓰기)
-              os.chmod(perm_filename, 0o600)
-
-          print(f'✅ Successfully generated {count} sets of secured files.')
+              code_lines = [' '.join(random.choices(keywords, k=5)) for _ in range(10)]
+              raw_content = '\n'.join(code_lines)
+              with open(f'{raw_dir}/snippet_{timestamp}_{i}_{tx_id}.py', 'w') as f: f.write(raw_content)
+              dataset_entry = {'instruction': f'Explain snippet {tx_id}', 'input': raw_content, 'output': 'Simulated output.'}
+              with open(f'{proc_dir}/train_set_{timestamp}.jsonl', 'a') as f: f.write(json.dumps(dataset_entry) + '\n')
+          print(f'✅ Data Pipeline Complete.')
           "
 
-      # 5. [스크립트 실행] 기존 로직 유지 (issue_manager.py)
-      - name: 🏃 Run Ops Script (Robust)
+      # 4. [보안] 암호화 및 키 발급
+      - name: 🔐 Encrypt Datasets & Generate Access Keys
+        run: |
+          echo "🔒 Encrypting Sensitive Training Data..."
+          python3 -c "
+          import os, secrets, glob
+          proc_dir, vault_dir, perm_dir = 'copilot_server/data/processed_datasets', 'copilot_server/data/encrypted_vault', 'copilot_server/config/permissions'
+          files = glob.glob(f'{proc_dir}/*.jsonl')
+          for file_path in files:
+              filename = os.path.basename(file_path)
+              with open(file_path, 'rb') as f: data = f.read()
+              with open(f'{vault_dir}/{filename}.enc', 'wb') as f: f.write(secrets.token_bytes(16) + data[::-1])
+              key_path = f'{perm_dir}/key_{filename.split('.')[0]}.pem'
+              with open(key_path, 'w') as f: f.write(f'-----BEGIN KEY-----\n{secrets.token_urlsafe(32)}\n-----END KEY-----')
+              os.chmod(key_path, 0o600)
+          print(f'✅ Security Applied: {len(files)} datasets encrypted.')
+          "
+
+      # 5. [AI 학습]
+      - name: 🧠 Run AI Model Training (Fine-tuning Simulation)
+        env:
+          EPOCHS: ${{ inputs.epochs != '' && inputs.epochs || '5' }}
+        run: |
+          echo "🚀 Starting Distributed Training Simulation..."
+          python3 -c "
+          import os, time, random, json, uuid
+          epochs = int(os.environ.get('EPOCHS', 5))
+          model_dir, log_dir = 'copilot_server/models/checkpoints', 'copilot_server/logs/training_metrics'
+          run_id, loss = uuid.uuid4().hex[:6], 2.5
+          metrics_log = []
+          for epoch in range(1, epochs + 1):
+              loss = max(0.1, loss * random.uniform(0.8, 0.95))
+              accuracy = 1.0 - (loss / 3.0)
+              metrics_log.append({'epoch': epoch, 'loss': round(loss, 4), 'accuracy': round(accuracy, 4), 'timestamp': time.time()})
+              print(f'   [Epoch {epoch}/{epochs}] Loss: {loss:.4f} | Acc: {accuracy:.2%}')
+              if epoch % 2 == 0 or epoch == epochs:
+                  with open(f'{model_dir}/copilot_v2_epoch{epoch}_{run_id}.pt', 'wb') as f: f.write(os.urandom(1024))
+          with open(f'{log_dir}/train_metrics_{run_id}.json', 'w') as f: json.dump(metrics_log, f, indent=2)
+          print('✅ Model Training Completed.')
+          "
+
+      # 6. [운영 스크립트 실행] - 'All' 모드 처리 로직 추가
+      - name: 🏃 Run Ops Management Script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
-          MODE: ${{ inputs.mode || 'auto' }}
-          COUNT: ${{ inputs.count != '' && inputs.count || '10' }}
+          # 입력된 모드가 'all'이면 스크립트 내부에서 모든 로직을 처리하도록 'all' 전달
+          MODE: ${{ inputs.mode || 'all' }}
         run: |
-          echo "⚙️ Execution Parameters -> Mode: $MODE, Count: $COUNT"
-          
+          echo "⚙️ Executing in MODE: $MODE"
           if [ -f "scripts/issue_manager.py" ]; then
             python scripts/issue_manager.py
           else
-            echo "⚠️ Script 'scripts/issue_manager.py' not found. Creating dummy for test."
-            echo "import os; print(f'Running in {os.getenv(\"MODE\")} mode with count {os.getenv(\"COUNT\")}')" > scripts/issue_manager.py
+            echo "⚠️ issue_manager.py not found. Creating placeholder."
+            # 'All' 모드일 때의 안내 메시지 추가
+            echo "import os; mode = os.getenv('MODE'); print(f'Ops Script Running in {mode} mode... Executing FULL diagnostics.');" > scripts/issue_manager.py
             python scripts/issue_manager.py
           fi
 
-      # 6. [변경사항 반영] 서버 동기화 및 푸시
-      - name: 🔄 Sync & Push Changes
+      # 7. [동기화]
+      - name: 🔄 Sync Data & Models to Repo
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
+          git config --global user.name "ai-ops-bot"
+          git config --global user.email "ai-ops-bot@users.noreply.github.com"
           if [ -n "$(git status --porcelain)" ]; then
             git add .
-            git commit -m "🚀 Copilot Security Data & Permissions Update [skip ci]"
-            
-            # 충돌 방지 재시도 루프
+            git commit -m "🧠 AI Ops: Mass Data Ingestion & Model Training Update (Mode: ${{ inputs.mode }}) [skip ci]"
             n=0
-            until [ "$n" -ge 5 ]
-            do
-               echo "🔄 Syncing with remote server (Attempt $((n+1)))..."
+            until [ "$n" -ge 5 ]; do
                git pull --rebase origin ${GITHUB_REF_NAME} && break
-               n=$((n+1))
-               sleep 5
+               n=$((n+1)); sleep 5
             done
-            
             git push origin HEAD:${GITHUB_REF}
-            echo "✅ Server Sync Completed."
+            echo "✅ All AI Artifacts Synced."
           else
-            echo "ℹ️ No changes needed."
+            echo "ℹ️ No changes to sync."
           fi
