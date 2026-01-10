@@ -1,4 +1,4 @@
-name: 🛡️ Infinity Scale Ops (Syntax Fixed)
+name: 🛡️ Infinity Scale Ops (Auto-Cleanup & Optimization)
 
 on:
   workflow_dispatch:
@@ -12,13 +12,13 @@ on:
           - Full-Scan
           - Fix-Only
       retry_count:
-        description: '현재 재시도 횟수 (시스템 자동 관리)'
+        description: '재시도 횟수 (자동 관리)'
         default: '0'
         required: false
 
 jobs:
-  infinity-ops:
-    name: 🔄 Chain Executor (Run ${{ inputs.retry_count }}/999)
+  infinity-clean-ops:
+    name: 🧹 Clean & Process (Run ${{ inputs.retry_count }}/999)
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,18 +26,21 @@ jobs:
       issues: write
 
     steps:
-      # 1. [시스템 정리] 디스크 공간 확보
-      - name: 🧹 Extreme Disk Cleanup
+      # 1. [시스템 정리] 러너(Runner) 디스크 공간 25GB+ 확보
+      - name: 🧹 Extreme System Cleanup
         run: |
           echo "⚠️ [Step 1] Initial Disk Space:"
           df -h
-          echo "🧹 Performing aggressive cleanup..."
+          echo "🧹 Removing heavy unused tools..."
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/share/swift
           sudo docker system prune -a -f
-          echo "✅ [Cleanup Complete]"
+          echo "✅ [System Cleanup Complete]"
+          df -h
 
       # 2. [저장소 체크아웃]
       - name: 📥 Checkout Repository
@@ -45,67 +48,74 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 3. [Python 설정]
+      # 3. [저장소 용량 최적화] .git 폴더 압축 (매우 중요)
+      - name: 🗜️ Optimize Git Repository
+        run: |
+          echo "📦 Running Git Garbage Collection..."
+          git gc --prune=now
+          git repack -a -d -f --depth=250 --window=250
+          echo "✅ Repository optimized."
+
+      # 4. [Python 환경 설정]
       - name: 🔥 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 4. [스크립트 생성 및 실행] 문법 오류 원천 차단 방식
-      - name: 🧠 Generate & Run Robust Script
+      # 5. [스마트 스크립트 실행] 파일 처리 + 용량 정리 + 재수행 로직
+      - name: 🧠 Run Smart Cleaner & Processor
         id: processor
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RETRY_COUNT: ${{ inputs.retry_count }}
           REPO_NAME: ${{ github.repository }}
         run: |
-          # Python 스크립트를 파일로 먼저 작성 (따옴표 충돌 방지)
+          # Python 스크립트 생성 (문법 오류 방지용 cat 방식)
           cat << 'EOF' > ops_script.py
           import os
           import shutil
           import sys
           import gc
           import time
+          from pathlib import Path
 
           # === [설정] ===
           MIN_FREE_SPACE_MB = 1000
           LOG_FILE = 'processed_files.log'
           REPO_ROOT = '.'
           
-          # 환경변수 안전하게 가져오기
-          repo_name = os.environ.get('REPO_NAME', 'Unknown-Repo')
-          retry_cnt = os.environ.get('RETRY_COUNT', '0')
+          # [삭제 대상 확장자 정의] 용량 정리를 위한 타겟
+          JUNK_EXTENSIONS = {'.log', '.tmp', '.cache', '.bak', '.old'}
           
-          print(f"🚀 Starting Precision Ops on: {repo_name} (Retry: {retry_cnt})")
+          retry_cnt = os.environ.get('RETRY_COUNT', '0')
+          print(f"🚀 Starting Ops on: {REPO_ROOT} (Retry: {retry_cnt})")
 
           # 1. 이전 작업 내역 로드
           processed = set()
           if os.path.exists(LOG_FILE):
               with open(LOG_FILE, 'r', encoding='utf-8') as f:
                   processed = set(line.strip() for line in f if line.strip())
-          print(f"📚 Previously Processed Files: {len(processed)}")
 
-          # 2. 처리할 파일 스캔 (Recursive)
+          # 2. 파일 스캔 (Recursive)
           files_to_process = []
           for root, dirs, files in os.walk(REPO_ROOT):
-              if '.git' in root: continue # .git 폴더 제외
+              if '.git' in root: continue
               
               for file in files:
                   full_path = os.path.join(root, file)
-                  # 로그 파일 자체와 스크립트 파일은 제외
+                  # 이미 처리했거나, 로그 파일 자체는 제외
                   if full_path not in processed and not full_path.endswith(LOG_FILE) and not full_path.endswith('ops_script.py'):
                       files_to_process.append(full_path)
 
           total_files = len(files_to_process)
-          print(f"🔍 Files remaining to process: {total_files}")
+          print(f"🔍 Files remaining: {total_files}")
 
           if total_files == 0:
-              print("✅ All files are already processed!")
+              print("✅ All files processed/cleaned!")
               with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
                   print('needs_retry=false', file=fh)
               sys.exit(0)
 
-          # 3. 작업 수행 루프
           stop_signal = False
           
           for idx, file_path in enumerate(files_to_process):
@@ -114,63 +124,68 @@ jobs:
               free_mb = free // (1024 * 1024)
               
               if free_mb < MIN_FREE_SPACE_MB:
-                  print(f"⚠️ [LOW DISK] {free_mb}MB left. Stopping explicitly.")
+                  print(f"⚠️ [LOW DISK] {free_mb}MB left. Initiating Handover.")
                   stop_signal = True
                   break
               
-              # [실제 작업 영역]
               try:
-                  # 파일 존재 여부 재확인 (Race condition 방지)
                   if os.path.exists(file_path):
-                      # 여기에 실제 파일 처리 로직 (암호화, 분석 등)
-                      # file_size = os.path.getsize(file_path)
-                      pass 
+                      ext = os.path.splitext(file_path)[1].lower()
+                      
+                      # === [핵심 기능: 용량 정리] ===
+                      # 1. 정크 파일(로그, 임시파일)은 즉시 삭제
+                      if ext in JUNK_EXTENSIONS:
+                          print(f"🗑️ Deleting junk file: {file_path}")
+                          os.remove(file_path)
+                      
+                      # 2. 일반 파일 처리 로직 (분석/수정 등)
+                      else:
+                          # print(f"Processing: {file_path}")
+                          pass 
+
               except Exception as e:
-                  print(f"❌ Error processing {file_path}: {e}")
-              
+                  print(f"❌ Error on {file_path}: {e}")
+
               # [상태 기록]
               processed.add(file_path)
               with open(LOG_FILE, 'a', encoding='utf-8') as log:
                   log.write(f"{file_path}\n")
 
-              # [메모리 최적화] 대량 파일 처리 시 필수
+              # [메모리 최적화]
               if idx % 500 == 0:
                   gc.collect()
-                  # print(f"   -> Progress: {idx}/{total_files}")
 
-          # 4. 결과 출력
+          # 결과 처리
           if stop_signal:
               with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
                   print('needs_retry=true', file=fh)
-              print("🛑 Logic paused for recovery.")
           else:
               with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
                   print('needs_retry=false', file=fh)
-              print("🎉 Batch complete.")
           EOF
           
-          # 생성된 스크립트 실행
+          # 스크립트 실행
           python3 ops_script.py
 
-      # 5. [상태 저장]
-      - name: 💾 Save Checkpoint
+      # 6. [결과 저장] 삭제된 파일 및 처리 내역 커밋
+      - name: 💾 Commit & Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          git add processed_files.log
+          # 삭제된 파일(git rm) 및 변경사항 모두 반영
+          git add -A
           
           if ! git diff-index --quiet HEAD; then
-            git commit -m "💾 Progress Update: Run ${{ inputs.retry_count }} [skip ci]"
-            # 충돌 발생 시 원격 저장소 내용을 우선으로 병합하지 않고, 우리 변경사항을 유지하며 재시도
+            git commit -m "🧹 Cleanup & Process: Run ${{ inputs.retry_count }} [skip ci]"
             git pull --rebase origin ${GITHUB_REF_NAME} || true
             git push origin HEAD:${GITHUB_REF}
-            echo "✅ Progress saved."
+            echo "✅ Changes synced."
           else
-             echo "ℹ️ No changes needed."
+             echo "ℹ️ No changes to commit."
           fi
 
-      # 6. [999회 자동 재수행]
+      # 7. [999회 자동 재수행]
       - name: 🔄 Trigger Next Chain
         if: steps.processor.outputs.needs_retry == 'true'
         env:
@@ -181,7 +196,7 @@ jobs:
           NEXT_RETRY=$(($CURRENT_RETRY + 1))
           
           if [ "$NEXT_RETRY" -le "$MAX_RETRIES" ]; then
-            echo "🚀 Triggering Run #$NEXT_RETRY / $MAX_RETRIES..."
+            echo "🚀 Triggering Run #$NEXT_RETRY..."
             sleep 5
             gh workflow run "${{ github.workflow }}" -f mode="${{ inputs.mode }}" -f retry_count="$NEXT_RETRY"
           else
