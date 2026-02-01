@@ -1,0 +1,32 @@
+[
+  {
+    "epoch": 1,
+    "loss": 2.1172,
+    "accuracy": 0.2943,
+    "timestamp": 1768025780.2087495
+  },
+  {
+    "epoch": 2,
+    "loss": 1.7188,
+    "accuracy": 0.4271,
+    "timestamp": 1768025780.2087584
+  },
+  {
+    "epoch": 3,
+    "loss": 1.4995,
+    "accuracy": 0.5002,
+    "timestamp": 1768025780.2087626
+  },
+  {
+    "epoch": 4,
+    "loss": 1.3772,
+    "accuracy": 0.5409,
+    "timestamp": 1768025780.2087655
+  },
+  {
+    "epoch": 5,
+    "loss": 1.2954,
+    "accuracy": 0.5682,
+    "timestamp": 1768025780.2087684
+  }
+]
