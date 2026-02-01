@@ -1,0 +1,41 @@
+name: ☣️ Security - Data Poisoning (Make File Useless)
+
+on:
+  push:
+    paths:
+      - '**/github-recovery-codes.txt'
+  workflow_dispatch:
+
+jobs:
+  poison-file:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🧪 Inject Garbage Data (Poisoning)
+        run: |
+          TARGET="github-recovery-codes.txt"
+          
+          if [ -f "$TARGET" ]; then
+            echo "🚨 Sensitive file detected! Initiating poisoning protocol..."
+            
+            # 1. 파일 내용을 랜덤 난수로 500줄 덮어쓰기 (복구 코드 파괴)
+            openssl rand -base64 10000 > "$TARGET"
+            echo "THIS_FILE_HAS_BEEN_DESTROYED_BY_SECURITY_PROTOCOL_$(date)" >> "$TARGET"
+            
+            # 2. Git 설정 및 강제 푸시
+            git config --global user.name "Security Ops"
+            git config --global user.email "security@ops.bot"
+            
+            git add "$TARGET"
+            git commit -m "☣️ [SECURITY] File content destroyed/poisoned automatically."
+            git push
+            
+            echo "✅ File content has been overwritten with garbage data. Download is now useless."
+          else
+            echo "Target file not found."
+          fi

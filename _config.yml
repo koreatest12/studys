@@ -1,0 +1,8 @@
+title: Ultra Mega Server V15
+theme: jekyll-theme-slate
+exclude:
+  - external_studys_data/
+  - node_modules/
+  - vendor/
+  - .github/
+  - "*.json"

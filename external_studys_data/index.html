@@ -1,268 +1,399 @@
 
-    <!DOCTYPE html>
-    <html lang='ko'>
-    <head>
-        <meta charset='utf-8'>
-        <title>Mega Server V9</title>
-        <style>
-            body { background: #000; color: #0f0; font-family: 'Courier New', monospace; padding: 20px; }
-            .container { max-width: 1200px; margin: 0 auto; border: 2px solid #0f0; padding: 20px; box-shadow: 0 0 20px #0f0; }
-            h1 { text-align: center; border-bottom: 2px solid #0f0; }
-            
-            /* Disk Usage Bar */
-            .disk-box { margin: 20px 0; border: 1px solid #333; padding: 10px; background: #111; }
-            .progress-bg { background: #333; height: 25px; width: 100%; border-radius: 5px; overflow: hidden; }
-            .progress-bar { background: linear-gradient(90deg, #0f0, #ff0); height: 100%; width: 46.76052957076231%; transition: width 0.5s; }
-            
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #0f0; padding: 10px; text-align: left; }
-            th { background: #002200; }
-            a { color: #0ff; text-decoration: none; }
-            
-            .boot-log { background: #111; color: #aaa; padding: 10px; border: 1px solid #444; height: 150px; overflow-y: scroll; font-size: 0.9em; }
-        </style>
-    </head>
-    <body>
-        <div class='container'>
-            <h1>🖥️ MEGA SERVER STATUS: ONLINE</h1>
-            
-            <div class='disk-box'>
-                <h3>💾 Disk Usage (Expanded Capacity)</h3>
-                <div class='progress-bg'>
-                    <div class='progress-bar'></div>
-                </div>
-                <p>33 GB Used / 71 GB Total (46.8%)</p>
-            </div>
-
-            <div class='disk-box'>
-                <h3>⚡ Last Reboot Sequence</h3>
-                <div class='boot-log'>
-                    SYSTEM REBOOT INITIATED...<br>
-                    Stopping Services... [OK]<br>
-                    Unmounting... [OK]<br>
-                    Booting Kernel... [OK]<br>
-                    Filesystem Check... [PASSED]<br>
-                    Services Started... [OK]<br>
-                    System Ready at 2026-01-10 06:34:23.172733
-                </div>
-            </div>
-
-            <h3>📂 Active Files (Top 30 Recent)</h3>
-            <table>
-                <tr><th>File</th><th>Path</th><th>Size</th><th>Action</th></tr>
-                
-        <tr>
-            <td>💾 backup_part_0_063423.dat</td>
-            <td>/Data/backup_part_0_063423.dat</td>
-            <td><b>47.00 MB</b></td>
-            <td><a href='File_Server_Root/Data/backup_part_0_063423.dat' download>⬇️ Load</a></td>
-        </tr>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>Ultra Mega Server V10 Admin</title>
+    <style>
+        body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 20px; }
+        .status-card { border: 1px solid #30363d; padding: 20px; border-radius: 6px; background: #161b22; margin-bottom: 20px; }
+        h1 { color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
+        h3 { color: #7ee787; }
         
-        <tr>
-            <td>💾 backup_part_1_063423.dat</td>
-            <td>/Data/backup_part_1_063423.dat</td>
-            <td><b>34.00 MB</b></td>
-            <td><a href='File_Server_Root/Data/backup_part_1_063423.dat' download>⬇️ Load</a></td>
-        </tr>
+        /* Progress Bar */
+        .progress-container { background: #30363d; height: 30px; border-radius: 15px; overflow: hidden; }
+        .progress-fill { background: linear-gradient(90deg, #238636, #3fb950); height: 100%; width: 82.26695593129034%; }
         
-        <tr>
-            <td>💾 backup_part_4_063423.dat</td>
-            <td>/Data/backup_part_4_063423.dat</td>
-            <td><b>39.00 MB</b></td>
-            <td><a href='File_Server_Root/Data/backup_part_4_063423.dat' download>⬇️ Load</a></td>
-        </tr>
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }
+        th { background: #21262d; color: #f0f6fc; text-align: left; padding: 10px; }
+        td { border-bottom: 1px solid #30363d; padding: 10px; }
+        a { color: #58a6ff; text-decoration: none; }
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; font-weight: bold; }
+        .tag-local { background: #1f6feb; color: white; }
+        .tag-ext { background: #d29922; color: black; }
+    </style>
+</head>
+<body>
+    <div class="status-card">
+        <h1>🖥️ SYSTEM STATUS: ONLINE (V10)</h1>
+        <p><b>Last Reboot:</b> 2026-01-10 06:44:41.026646</p>
         
-        <tr>
-            <td>💾 backup_part_2_063423.dat</td>
-            <td>/Data/backup_part_2_063423.dat</td>
-            <td><b>46.00 MB</b></td>
-            <td><a href='File_Server_Root/Data/backup_part_2_063423.dat' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>💾 backup_part_3_063423.dat</td>
-            <td>/Data/backup_part_3_063423.dat</td>
-            <td><b>10.00 MB</b></td>
-            <td><a href='File_Server_Root/Data/backup_part_3_063423.dat' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📜 boot_sequence_20260110_063421.log</td>
-            <td>/Boot/boot_sequence_20260110_063421.log</td>
-            <td><b>0.59 KB</b></td>
-            <td><a href='File_Server_Root/Boot/boot_sequence_20260110_063421.log' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_eadbb7ef.txt</td>
-            <td>/Users/Developers/project_file_eadbb7ef.txt</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_eadbb7ef.txt' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_9f0605f1.xml</td>
-            <td>/Users/Developers/project_file_9f0605f1.xml</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_9f0605f1.xml' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_c35cc6eb.txt</td>
-            <td>/Users/Developers/project_file_c35cc6eb.txt</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_c35cc6eb.txt' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_8232a652.java</td>
-            <td>/Users/Developers/project_file_8232a652.java</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_8232a652.java' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_a5771b49.java</td>
-            <td>/Users/Developers/project_file_a5771b49.java</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_a5771b49.java' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_ef2ef99c.c</td>
-            <td>/Users/Developers/project_file_ef2ef99c.c</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_ef2ef99c.c' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_fef982a7.txt</td>
-            <td>/Users/Developers/project_file_fef982a7.txt</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_fef982a7.txt' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_8c16399f.java</td>
-            <td>/Users/Developers/project_file_8c16399f.java</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_8c16399f.java' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_6c3bdf8d.md</td>
-            <td>/Users/Developers/project_file_6c3bdf8d.md</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_6c3bdf8d.md' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_59a58236.txt</td>
-            <td>/Users/Developers/project_file_59a58236.txt</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_59a58236.txt' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_b625c5df.md</td>
-            <td>/Users/Developers/project_file_b625c5df.md</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_b625c5df.md' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_e697e575.json</td>
-            <td>/Users/Developers/project_file_e697e575.json</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_e697e575.json' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_70882577.java</td>
-            <td>/Users/Developers/project_file_70882577.java</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_70882577.java' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_cc0262a8.py</td>
-            <td>/Users/Developers/project_file_cc0262a8.py</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_cc0262a8.py' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_c0b23789.json</td>
-            <td>/Users/Developers/project_file_c0b23789.json</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_c0b23789.json' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_721f83a2.java</td>
-            <td>/Users/Developers/project_file_721f83a2.java</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_721f83a2.java' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_a2a03809.md</td>
-            <td>/Users/Developers/project_file_a2a03809.md</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_a2a03809.md' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_bf1e2000.c</td>
-            <td>/Users/Developers/project_file_bf1e2000.c</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_bf1e2000.c' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_e4384cc2.xml</td>
-            <td>/Users/Developers/project_file_e4384cc2.xml</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_e4384cc2.xml' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_9662ac53.java</td>
-            <td>/Users/Developers/project_file_9662ac53.java</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_9662ac53.java' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_844f1040.json</td>
-            <td>/Users/Developers/project_file_844f1040.json</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_844f1040.json' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_fe4359af.txt</td>
-            <td>/Users/Developers/project_file_fe4359af.txt</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_fe4359af.txt' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_d0a1290f.c</td>
-            <td>/Users/Developers/project_file_d0a1290f.c</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_d0a1290f.c' download>⬇️ Load</a></td>
-        </tr>
-        
-        <tr>
-            <td>📄 project_file_bc22cb8b.md</td>
-            <td>/Users/Developers/project_file_bc22cb8b.md</td>
-            <td><b>0.06 KB</b></td>
-            <td><a href='File_Server_Root/Users/Developers/project_file_bc22cb8b.md' download>⬇️ Load</a></td>
-        </tr>
-        
-            </table>
+        <h3>💾 Storage Capacity (Expanded)</h3>
+        <div class="progress-container">
+            <div class="progress-fill"></div>
         </div>
-    </body>
-    </html>
+        <p style="text-align: right;">58 GB Used / 71 GB Total (82.3%)</p>
+    </div>
+
+    <div class="status-card">
+        <h3>📂 Data File Explorer (Top 50 Recent)</h3>
+        <p>Includes Generated Service Data & External Repository (Studys)</p>
+        <table>
+            <thead><tr><th>Source</th><th>Filename</th><th>Size</th><th>Download</th></tr></thead>
+            <tbody>
+
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>DB_Cluster_data_064440_4.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/DB_Cluster/DB_Cluster_data_064440_4.bin</span></td>
+            <td>22.00 MB</td>
+            <td><a href="Service_Storage/DB_Cluster/DB_Cluster_data_064440_4.bin">⬇️ Access</a></td>
+        </tr>
     
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>DB_Cluster_data_064440_2.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/DB_Cluster/DB_Cluster_data_064440_2.bin</span></td>
+            <td>36.00 MB</td>
+            <td><a href="Service_Storage/DB_Cluster/DB_Cluster_data_064440_2.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>DB_Cluster_data_064440_3.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/DB_Cluster/DB_Cluster_data_064440_3.bin</span></td>
+            <td>47.00 MB</td>
+            <td><a href="Service_Storage/DB_Cluster/DB_Cluster_data_064440_3.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Auth_System_data_064440_3.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Auth_System/Auth_System_data_064440_3.bin</span></td>
+            <td>25.00 MB</td>
+            <td><a href="Service_Storage/Auth_System/Auth_System_data_064440_3.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Auth_System_data_064440_0.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Auth_System/Auth_System_data_064440_0.bin</span></td>
+            <td>56.00 MB</td>
+            <td><a href="Service_Storage/Auth_System/Auth_System_data_064440_0.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Auth_System_data_064440_4.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Auth_System/Auth_System_data_064440_4.bin</span></td>
+            <td>47.00 MB</td>
+            <td><a href="Service_Storage/Auth_System/Auth_System_data_064440_4.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Auth_System_data_064440_2.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Auth_System/Auth_System_data_064440_2.bin</span></td>
+            <td>33.00 MB</td>
+            <td><a href="Service_Storage/Auth_System/Auth_System_data_064440_2.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Auth_System_data_064440_1.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Auth_System/Auth_System_data_064440_1.bin</span></td>
+            <td>44.00 MB</td>
+            <td><a href="Service_Storage/Auth_System/Auth_System_data_064440_1.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Backup_Vault_data_064440_1.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Backup_Vault/Backup_Vault_data_064440_1.bin</span></td>
+            <td>42.00 MB</td>
+            <td><a href="Service_Storage/Backup_Vault/Backup_Vault_data_064440_1.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Backup_Vault_data_064440_2.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Backup_Vault/Backup_Vault_data_064440_2.bin</span></td>
+            <td>48.00 MB</td>
+            <td><a href="Service_Storage/Backup_Vault/Backup_Vault_data_064440_2.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Backup_Vault_data_064440_0.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Backup_Vault/Backup_Vault_data_064440_0.bin</span></td>
+            <td>40.00 MB</td>
+            <td><a href="Service_Storage/Backup_Vault/Backup_Vault_data_064440_0.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>DB_Cluster_data_064440_0.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/DB_Cluster/DB_Cluster_data_064440_0.bin</span></td>
+            <td>28.00 MB</td>
+            <td><a href="Service_Storage/DB_Cluster/DB_Cluster_data_064440_0.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>DB_Cluster_data_064440_1.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/DB_Cluster/DB_Cluster_data_064440_1.bin</span></td>
+            <td>42.00 MB</td>
+            <td><a href="Service_Storage/DB_Cluster/DB_Cluster_data_064440_1.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Web_Server_data_064440_0.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Web_Server/Web_Server_data_064440_0.bin</span></td>
+            <td>60.00 MB</td>
+            <td><a href="Service_Storage/Web_Server/Web_Server_data_064440_0.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Web_Server_data_064440_2.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Web_Server/Web_Server_data_064440_2.bin</span></td>
+            <td>49.00 MB</td>
+            <td><a href="Service_Storage/Web_Server/Web_Server_data_064440_2.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Web_Server_data_064440_4.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Web_Server/Web_Server_data_064440_4.bin</span></td>
+            <td>55.00 MB</td>
+            <td><a href="Service_Storage/Web_Server/Web_Server_data_064440_4.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Web_Server_data_064440_1.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Web_Server/Web_Server_data_064440_1.bin</span></td>
+            <td>25.00 MB</td>
+            <td><a href="Service_Storage/Web_Server/Web_Server_data_064440_1.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-local">LOCAL_GEN</span></td>
+            <td>Web_Server_data_064440_3.bin <br><span style="color:#8b949e; font-size:0.8em;">Service_Storage/Web_Server/Web_Server_data_064440_3.bin</span></td>
+            <td>35.00 MB</td>
+            <td><a href="Service_Storage/Web_Server/Web_Server_data_064440_3.bin">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>build.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/n8n_integration/n8n_source/packages/cli/build.log</span></td>
+            <td>0.17 KB</td>
+            <td><a href="external_studys_data/n8n_integration/n8n_source/packages/cli/build.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>passwd_audit.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/output_data/logs/passwd_audit.log</span></td>
+            <td>0.02 KB</td>
+            <td><a href="external_studys_data/output_data/logs/passwd_audit.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>passwd_sample.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/output_data/logs/passwd_sample.log</span></td>
+            <td>0.01 KB</td>
+            <td><a href="external_studys_data/output_data/logs/passwd_sample.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>sys_snapshot_20260107_142557.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/output_data/logs/concurrent_history/sys_snapshot_20260107_142557.log</span></td>
+            <td>0.89 KB</td>
+            <td><a href="external_studys_data/output_data/logs/concurrent_history/sys_snapshot_20260107_142557.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>sys_snapshot_20260107_142242.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/output_data/logs/concurrent_history/sys_snapshot_20260107_142242.log</span></td>
+            <td>0.93 KB</td>
+            <td><a href="external_studys_data/output_data/logs/concurrent_history/sys_snapshot_20260107_142242.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>zombie_status.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/output_data/logs/zombie_status.log</span></td>
+            <td>0.16 KB</td>
+            <td><a href="external_studys_data/output_data/logs/zombie_status.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>sys_snapshot_20260107_135714.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/output_data/logs/concurrent_history/sys_snapshot_20260107_135714.log</span></td>
+            <td>0.93 KB</td>
+            <td><a href="external_studys_data/output_data/logs/concurrent_history/sys_snapshot_20260107_135714.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>zombie.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/output_data/logs/zombie.log</span></td>
+            <td>0.24 KB</td>
+            <td><a href="external_studys_data/output_data/logs/zombie.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>sys_snapshot_20260107_133822.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/output_data/logs/concurrent_history/sys_snapshot_20260107_133822.log</span></td>
+            <td>0.93 KB</td>
+            <td><a href="external_studys_data/output_data/logs/concurrent_history/sys_snapshot_20260107_133822.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_6_0279eb3c.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_6_0279eb3c.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_6_0279eb3c.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_5_7e74fea4.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_5_7e74fea4.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_5_7e74fea4.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_8_7091224c.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_8_7091224c.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_8_7091224c.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_4_bbd612f0.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_4_bbd612f0.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_4_bbd612f0.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_0_160312fd.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_0_160312fd.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_0_160312fd.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_3_6cf80237.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_3_6cf80237.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_3_6cf80237.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_2_0ef52689.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_2_0ef52689.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_2_0ef52689.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_1_bc86af84.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_1_bc86af84.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_1_bc86af84.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_7_63437196.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_7_63437196.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_7_63437196.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_091.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_091.log</span></td>
+            <td>3.32 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_091.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>copilot_v2_epoch5_ba9057.pt <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/models/checkpoints/copilot_v2_epoch5_ba9057.pt</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/models/checkpoints/copilot_v2_epoch5_ba9057.pt">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>copilot_v2_epoch2_ba9057.pt <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/models/checkpoints/copilot_v2_epoch2_ba9057.pt</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/models/checkpoints/copilot_v2_epoch2_ba9057.pt">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>data_1768024996_9_1cff940d.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted/data_1768024996_9_1cff940d.enc</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted/data_1768024996_9_1cff940d.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_092.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_092.log</span></td>
+            <td>3.32 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_092.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>copilot_v2_epoch4_ba9057.pt <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/models/checkpoints/copilot_v2_epoch4_ba9057.pt</span></td>
+            <td>1.00 KB</td>
+            <td><a href="external_studys_data/copilot_server/models/checkpoints/copilot_v2_epoch4_ba9057.pt">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>workflow_learning_data.jsonl.enc <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/copilot_server/data/encrypted_vault/workflow_learning_data.jsonl.enc</span></td>
+            <td>2.05 KB</td>
+            <td><a href="external_studys_data/copilot_server/data/encrypted_vault/workflow_learning_data.jsonl.enc">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_065.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_065.log</span></td>
+            <td>3.32 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_065.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_100.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_100.log</span></td>
+            <td>3.32 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_100.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_098.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_098.log</span></td>
+            <td>3.32 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_098.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_071.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_071.log</span></td>
+            <td>3.32 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_071.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_070.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_070.log</span></td>
+            <td>3.32 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_070.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_096.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_096.log</span></td>
+            <td>3.32 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_096.log">⬇️ Access</a></td>
+        </tr>
+    
+        <tr>
+            <td><span class="tag tag-ext">EXT_REPO</span></td>
+            <td>access_log_087.log <br><span style="color:#8b949e; font-size:0.8em;">external_studys_data/File_Server_Root/Logs/Access/access_log_087.log</span></td>
+            <td>3.37 KB</td>
+            <td><a href="external_studys_data/File_Server_Root/Logs/Access/access_log_087.log">⬇️ Access</a></td>
+        </tr>
+    
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
