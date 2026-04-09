@@ -3,6 +3,10 @@ import type { Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 export class SettingsUsersPage extends BasePage {
+	async goto(): Promise<void> {
+		await this.page.goto('/settings/users');
+	}
+
 	getSearchInput(): Locator {
 		return this.page.getByTestId('users-list-search');
 	}
@@ -23,11 +27,6 @@ export class SettingsUsersPage extends BasePage {
 		const searchInput = this.getSearchInput();
 		await searchInput.click();
 		await searchInput.fill(email);
-	}
-
-	async clickTransferUser(email: string) {
-		await this.openActions(email);
-		await this.page.getByTestId('action-transfer').click();
 	}
 
 	async transferData(emailOrName: string) {
