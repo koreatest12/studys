@@ -59,6 +59,10 @@ if (process.env.VUE_SCAN) {
 
 app.mount('#app');
 
+if (process.env.DEV) {
+	void import('@/app/dev/dev-panel').then((m) => m.mountDevPanel());
+}
+
 if (!process.env.PROD) {
 	// Make sure that we get all error messages properly displayed
 	// as long as we are not in production mode
