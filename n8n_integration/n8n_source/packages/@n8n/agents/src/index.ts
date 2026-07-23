@@ -107,6 +107,12 @@ export {
 
 export { createCancellation, isCancellation, CANCELLATION_TYPE } from './sdk/cancellation';
 export type { Cancellation } from './sdk/cancellation';
+export {
+	createAbortError,
+	isAbortError,
+	raceWithAbort,
+	throwIfAborted,
+} from './sdk/abort';
 export { Tool, wrapToolForApproval, sanitizeToolName } from './sdk/tool';
 export { Memory } from './sdk/memory';
 export { VectorStore } from './sdk/vector-store';
@@ -275,6 +281,8 @@ export type {
 	SubAgentTaskDifficulty,
 } from './runtime/tools/delegate-sub-agent-tool';
 export { WRITE_TODOS_TOOL_NAME, createWriteTodosTool } from './runtime/tools/write-todos-tool';
+export { createPlannerTodosTool } from './runtime/tools/planner-todos-tool';
+export type { CreatePlannerTodosToolOptions } from './runtime/tools/planner-todos-tool';
 export type { CreateWriteTodosToolOptions } from './runtime/tools/write-todos-tool';
 export { createEmbeddingModel } from './runtime/model/model-factory';
 export { generateTitleFromMessage } from './runtime/memory/title-generation';
@@ -396,11 +404,14 @@ export type {
 	FileContent,
 	FileStat,
 	FileEntry,
+	AbortableOptions,
+	AppendOptions,
 	ReadOptions,
 	WriteOptions,
 	ListOptions,
 	RemoveOptions,
 	CopyOptions,
+	MkdirOptions,
 	ProviderStatus,
 	SandboxInfo,
 	LocalFilesystemOptions,
