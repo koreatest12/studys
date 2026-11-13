@@ -5,6 +5,7 @@ import {
 	type INodeTypeBaseDescription,
 	SEND_AND_WAIT_OPERATION,
 	type IExecuteFunctions,
+	requestPath,
 } from 'n8n-workflow';
 
 import * as genericFunctions from '../../GenericFunctions';
@@ -87,7 +88,7 @@ describe('Test GmailV2, message => sendAndWait', () => {
 		expect(mockExecuteFunctions.putExecutionToWait).not.toHaveBeenCalled();
 	});
 
-	it('should send the raw email only and wait when advanced options are off', async () => {
+	it('should send the raw email and wait', async () => {
 		const items = [{ json: { data: 'test' } }];
 		mockExecuteFunctions.getInputData.mockReturnValue(items);
 		setupParameters();
@@ -98,38 +99,10 @@ describe('Test GmailV2, message => sendAndWait', () => {
 
 		expect(genericFunctions.googleApiRequest).toHaveBeenCalledWith(
 			'POST',
-			'/gmail/v1/users/me/messages/send',
+			requestPath`/gmail/v1/users/me/messages/send`,
 			{ raw: expect.any(String) },
 		);
 		expect(mockExecuteFunctions.putExecutionToWait).toHaveBeenCalled();
 		expect(result).toEqual([items]);
-	});
-
-	it('should include threadId in the send request when replying in a thread', async () => {
-		const items = [{ json: { data: 'test' } }];
-		mockExecuteFunctions.getInputData.mockReturnValue(items);
-		setupParameters({
-			advancedEmail: true,
-			advancedEmailOptions: { threadId: 'thread123' },
-		});
-
-		(genericFunctions.googleApiRequest as Mock)
-			// thread metadata lookup for reply headers
-			.mockResolvedValueOnce({
-				messages: [
-					{ payload: { headers: [{ name: 'Message-ID', value: '<mid@mail.example.com>' }] } },
-				],
-			})
-			// message send
-			.mockResolvedValueOnce({});
-
-		await gmail.execute.call(mockExecuteFunctions);
-
-		expect(genericFunctions.googleApiRequest).toHaveBeenLastCalledWith(
-			'POST',
-			'/gmail/v1/users/me/messages/send',
-			{ raw: expect.any(String), threadId: 'thread123' },
-		);
-		expect(mockExecuteFunctions.putExecutionToWait).toHaveBeenCalled();
 	});
 });

@@ -6,12 +6,11 @@ import {
 	inferSchemasFromRunData,
 	type JsonSchema,
 } from '@n8n/workflow-sdk';
-import type { INodeExecutionData } from 'n8n-workflow';
+import type { INodeExecutionData, INodeTypes } from 'n8n-workflow';
 import { isTriggerNode, jsonStringify } from 'n8n-workflow';
 import z from 'zod';
 
 import type { ExecutionService } from '@/executions/execution.service';
-import type { NodeTypes } from '@/node-types';
 import type { Telemetry } from '@/telemetry';
 import type { WorkflowFinderService } from '@/workflows/workflow-finder.service';
 
@@ -58,18 +57,18 @@ export const createPrepareTestPinDataTool = (
 	user: User,
 	workflowFinderService: WorkflowFinderService,
 	executionService: ExecutionService,
-	nodeTypes: NodeTypes,
+	nodeTypes: INodeTypes,
 	telemetry: Telemetry,
 	logger: Logger,
 ): ToolDefinition<typeof inputSchema.shape> => ({
-	name: 'prepare_test_pin_data',
+	name: 'prepare_workflow_pin_data',
 	config: {
 		description:
 			'Prepare test pin data for a workflow. Trigger nodes, nodes with credentials, and HTTP Request nodes need pin data. Logic nodes (Set, If, Code, etc.) and credential-free I/O nodes (Execute Command, file read/write) execute normally without pin data. Returns JSON Schemas describing the expected output shape for each node that needs pin data — schemas are derived from past execution output shapes or node type definitions. No actual user data is returned. You should generate realistic sample data for the schemas, use empty defaults for nodes without schema, merge everything into a single pinData object, and pass it to test_workflow.',
 		inputSchema: inputSchema.shape,
 		outputSchema,
 		annotations: {
-			title: 'Prepare Test Pin Data',
+			title: 'Prepare Workflow Pin Data',
 			readOnlyHint: true,
 			destructiveHint: false,
 			idempotentHint: true,
@@ -79,7 +78,7 @@ export const createPrepareTestPinDataTool = (
 	handler: async ({ workflowId }: z.infer<typeof inputSchema>) => {
 		const telemetryPayload: UserCalledMCPToolEventPayload = {
 			user_id: user.id,
-			tool_name: 'prepare_test_pin_data',
+			tool_name: 'prepare_workflow_pin_data',
 			parameters: { workflowId },
 		};
 
@@ -139,14 +138,14 @@ export async function preparePinData(
 	user: User,
 	workflowFinderService: WorkflowFinderService,
 	executionService: ExecutionService,
-	nodeTypes: NodeTypes,
+	nodeTypes: INodeTypes,
 	logger: Logger,
 ): Promise<PreparePinDataResult> {
 	const workflow = await getMcpWorkflow(workflowId, user, ['workflow:read'], workflowFinderService);
 
 	const enabledNodes = (workflow.nodes ?? []).filter((n) => !n.disabled);
 
-	// Build trigger detection callback using the NodeTypes registry
+	// Build trigger detection callback using the node types registry
 	const isTriggerNodeFn = (node: { type: string; typeVersion: number }) => {
 		try {
 			const nodeType = nodeTypes.getByNameAndVersion(node.type, node.typeVersion);

@@ -1,8 +1,11 @@
 import { Service } from '@n8n/di';
-import { DataSource, Repository } from '@n8n/typeorm';
+import { DataSource, In } from '@n8n/typeorm';
 import type { IWorkflowBase } from 'n8n-workflow';
 
-import { WorkflowPublishedVersion } from '../entities';
+import { BaseRepository } from './base-repository';
+import { WorkflowPublishedVersion, type WorkflowHistory } from '../entities';
+import { type OperationContext, TransactionRunner } from '../services/transaction';
+import { getWithWorkflowCollections } from '../utils/workflow-collections';
 
 export type PublishedWorkflowDataForExecution = Pick<
 	IWorkflowBase,
@@ -27,9 +30,9 @@ export type PublishedWorkflowDataForExecution = Pick<
 >;
 
 @Service()
-export class WorkflowPublishedVersionRepository extends Repository<WorkflowPublishedVersion> {
-	constructor(dataSource: DataSource) {
-		super(WorkflowPublishedVersion, dataSource.manager);
+export class WorkflowPublishedVersionRepository extends BaseRepository<WorkflowPublishedVersion> {
+	constructor(dataSource: DataSource, transactionRunner: TransactionRunner) {
+		super(WorkflowPublishedVersion, dataSource.manager, transactionRunner);
 	}
 
 	async setPublishedVersion(workflowId: string, publishedVersionId: string): Promise<void> {
@@ -40,8 +43,59 @@ export class WorkflowPublishedVersionRepository extends Repository<WorkflowPubli
 		await this.delete({ workflowId });
 	}
 
-	async getPublishedVersionId(workflowId: string): Promise<string | null> {
-		const record = await this.findOne({
+	/**
+	 * Which of these workflows still have a published version.
+	 *
+	 * @returns the subset of `workflowIds` that have one.
+	 */
+	async findPublishedWorkflowIds(workflowIds: string[]): Promise<Set<string>> {
+		if (workflowIds.length === 0) {
+			return new Set();
+		}
+		const rows = await this.find({
+			where: { workflowId: In(workflowIds) },
+			select: ['workflowId'],
+		});
+		return new Set(rows.map((row) => row.workflowId));
+	}
+
+	/**
+	 * The nodes and connections of the live published version of each of these workflows.
+	 * A workflow without a published version has no entry.
+	 */
+	async findPublishedVersionContents(
+		workflowIds: string[],
+	): Promise<Map<string, Pick<WorkflowHistory, 'nodes' | 'connections'>>> {
+		if (workflowIds.length === 0) return new Map();
+
+		const rows = await this.createQueryBuilder('mapping')
+			.innerJoin('mapping.publishedVersion', 'publishedVersion')
+			.select([
+				'mapping.workflowId',
+				'publishedVersion.versionId',
+				'publishedVersion.nodes',
+				'publishedVersion.connections',
+			])
+			.where('mapping.workflowId IN (:...workflowIds)', { workflowIds })
+			.getMany();
+		return new Map(
+			rows.map(({ workflowId, publishedVersion: { nodes, connections } }) => [
+				workflowId,
+				{ nodes, connections },
+			]),
+		);
+	}
+
+	/**
+	 * @param ctx - Pass the active operation context so the read joins an open
+	 * transaction (e.g. while holding `DbLock.WORKFLOW_REVIEW_MUTATION`).
+	 * Defaults to `{}` for non-transactional callers.
+	 */
+	async getPublishedVersionId(
+		workflowId: string,
+		ctx: OperationContext = {},
+	): Promise<string | null> {
+		const record = await this.managerFor(ctx).findOne(WorkflowPublishedVersion, {
 			where: { workflowId },
 			select: ['publishedVersionId'],
 		});
@@ -56,13 +110,18 @@ export class WorkflowPublishedVersionRepository extends Repository<WorkflowPubli
 	async getPublishedVersionWithRelations(
 		workflowId: string,
 	): Promise<WorkflowPublishedVersion | null> {
-		return await this.findOne({
-			where: { workflowId },
-			relations: {
-				workflow: { shared: { project: true } },
-				publishedVersion: true,
-			},
-		});
+		// `workflowId` is the primary key and both joins have one row, so no LIMIT is needed.
+		const qb = this.createQueryBuilder('record')
+			.innerJoinAndSelect('record.workflow', 'workflow')
+			.leftJoinAndSelect('record.publishedVersion', 'publishedVersion')
+			.where('record.workflowId = :workflowId', { workflowId });
+
+		const [record] = await getWithWorkflowCollections(
+			qb,
+			{ shared: { project: true } },
+			({ workflow }) => workflow,
+		);
+		return record ?? null;
 	}
 
 	async getPublishedVersionForExecution(
@@ -103,6 +162,7 @@ export class WorkflowPublishedVersionRepository extends Repository<WorkflowPubli
 			id: workflow.id,
 			name: workflow.name,
 			description: workflow.description,
+			// oxlint-disable-next-line typescript/no-deprecated
 			active: workflow.active,
 			isArchived: workflow.isArchived,
 			createdAt: workflow.createdAt,

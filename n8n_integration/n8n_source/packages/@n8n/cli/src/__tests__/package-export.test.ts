@@ -1,4 +1,4 @@
-import type { Config } from '@oclif/core';
+import { Config } from '@oclif/core';
 import * as fs from 'node:fs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
@@ -10,31 +10,46 @@ vi.mock('node:fs');
 const mockedWriteFileSync = vi.mocked(fs.writeFileSync);
 
 interface ExportFlags {
+	agentId?: string[];
 	workflowId?: string[];
 	folderId?: string[];
 	projectId?: string[];
 	output: string;
 	includeVariableValues?: string;
-	missingWorkflowDependencyPolicy?: string;
+	includeTags?: string;
+	dependencyPolicy?: string;
+	versionPolicy?: string;
+	credentialExportPolicy?: string;
+	includeArchived?: string;
 }
 
 /** The command methods we stub to isolate behaviour from oclif/networking. */
 interface ExportInternals {
 	parse: () => Promise<{ flags: ExportFlags }>;
 	getClient: () => N8nClient;
-	succeed: () => void;
+	succeed: (message: string, ...args: unknown[]) => void;
 	error: (message: string) => never;
 }
 
+const DEFAULT_COUNTS = {
+	workflows: 0,
+	folders: 0,
+	credentials: 0,
+	dataTables: 0,
+	variables: 0,
+};
+
 function stubCommand(
 	flags: ExportFlags,
-	exportPackage = vi.fn().mockResolvedValue(Buffer.from([1, 2, 3])),
+	exportPackage = vi
+		.fn()
+		.mockResolvedValue({ archive: Buffer.from([1, 2, 3]), counts: DEFAULT_COUNTS }),
 ) {
 	const command = new PackageExport([], {} as Config);
 	const internals = command as unknown as ExportInternals;
 	// Bypass oclif arg parsing, connection setup, and the success/exit path.
 	vi.spyOn(internals, 'parse').mockResolvedValue({
-		flags: { missingWorkflowDependencyPolicy: 'fail', ...flags },
+		flags: { dependencyPolicy: 'fail', ...flags },
 	});
 	vi.spyOn(internals, 'getClient').mockReturnValue({ exportPackage } as unknown as N8nClient);
 	vi.spyOn(internals, 'succeed').mockImplementation(() => {});
@@ -49,6 +64,56 @@ describe('package export command', () => {
 		vi.restoreAllMocks();
 	});
 
+	it.each([false, true])('parses repeated Agent selection with mixed=%s', async (mixed) => {
+		const argv = ['--agent-id=agent-1', '--agent-id=agent-2', '--output=/tmp/agents.n8np'];
+		if (mixed)
+			argv.push(
+				'--workflow-id=workflow',
+				'--folder-id=folder',
+				'--dependency-policy=include-in-package',
+				'--version-policy=published-strict',
+			);
+		const command = new PackageExport(argv, await Config.load(process.cwd()));
+		const internals = command as unknown as ExportInternals;
+		const counts = { ...DEFAULT_COUNTS, agents: 3, workflows: 1 };
+		const exportPackage = vi.fn().mockResolvedValue({ archive: Buffer.from('package'), counts });
+		vi.spyOn(internals, 'getClient').mockReturnValue({ exportPackage } as unknown as N8nClient);
+		vi.spyOn(internals, 'succeed').mockImplementation(() => {});
+		await command.run();
+		expect(exportPackage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentIds: ['agent-1', 'agent-2'],
+				workflowIds: mixed ? ['workflow'] : [],
+				folderIds: mixed ? ['folder'] : [],
+				versionPolicy: mixed ? 'published-strict' : 'latest',
+				dependencyPolicy: mixed ? 'include-in-package' : 'fail',
+			}),
+		);
+		expect(internals.succeed).toHaveBeenCalledWith(
+			'Exported 3 agent(s), 1 workflow(s) to /tmp/agents.n8np',
+			expect.anything(),
+			expect.objectContaining({ agentIds: ['agent-1', 'agent-2'], counts }),
+		);
+		expect(mockedWriteFileSync).toHaveBeenCalledWith('/tmp/agents.n8np', Buffer.from('package'));
+	});
+
+	it.each([
+		{ counts: undefined, summary: '1 agent(s), 0 workflow(s) and 0 folder(s)' },
+		{ counts: DEFAULT_COUNTS, summary: '1 agent(s)' },
+		{ counts: { ...DEFAULT_COUNTS, agents: 0 }, summary: 'nothing' },
+	])('reports Agent exports with counts=$counts', async ({ counts, summary }) => {
+		const { command, internals } = stubCommand(
+			{ agentId: ['agent'], output: '/tmp/agent.n8np' },
+			vi.fn().mockResolvedValue({ archive: Buffer.from('package'), counts }),
+		);
+		await command.run();
+		expect(internals.succeed).toHaveBeenCalledWith(
+			`Exported ${summary} to /tmp/agent.n8np`,
+			expect.anything(),
+			expect.objectContaining({ agentIds: ['agent'] }),
+		);
+	});
+
 	it('forwards workflow ids (and an empty folder list) and writes the archive', async () => {
 		const { command, exportPackage } = stubCommand({
 			workflowId: ['wf-1', 'wf-2'],
@@ -61,7 +126,8 @@ describe('package export command', () => {
 			workflowIds: ['wf-1', 'wf-2'],
 			folderIds: [],
 			includeVariableValues: true,
-			missingWorkflowDependencyPolicy: 'fail',
+			includeTags: true,
+			dependencyPolicy: 'fail',
 		});
 		expect(mockedWriteFileSync).toHaveBeenCalledWith('/tmp/team.n8np', Buffer.from([1, 2, 3]));
 	});
@@ -78,7 +144,8 @@ describe('package export command', () => {
 			workflowIds: [],
 			folderIds: ['fld-1'],
 			includeVariableValues: true,
-			missingWorkflowDependencyPolicy: 'fail',
+			includeTags: true,
+			dependencyPolicy: 'fail',
 		});
 		expect(mockedWriteFileSync).toHaveBeenCalledWith('/tmp/folders.n8np', Buffer.from([1, 2, 3]));
 	});
@@ -96,16 +163,17 @@ describe('package export command', () => {
 			workflowIds: ['wf-1'],
 			folderIds: ['fld-1'],
 			includeVariableValues: true,
-			missingWorkflowDependencyPolicy: 'fail',
+			includeTags: true,
+			dependencyPolicy: 'fail',
 		});
 	});
 
-	it('forwards a non-default missing workflow dependency policy for workflows and folders', async () => {
+	it('forwards a non-default dependency policy for workflows and folders', async () => {
 		const { command, exportPackage } = stubCommand({
 			workflowId: ['wf-1'],
 			folderId: ['fld-1'],
 			output: '/tmp/mixed.n8np',
-			missingWorkflowDependencyPolicy: 'reference-only',
+			dependencyPolicy: 'reference-only',
 		});
 
 		await command.run();
@@ -114,7 +182,102 @@ describe('package export command', () => {
 			workflowIds: ['wf-1'],
 			folderIds: ['fld-1'],
 			includeVariableValues: true,
-			missingWorkflowDependencyPolicy: 'reference-only',
+			includeTags: true,
+			dependencyPolicy: 'reference-only',
+		});
+	});
+
+	it('forwards a non-default version policy for workflows and folders', async () => {
+		const { command, exportPackage } = stubCommand({
+			workflowId: ['wf-1'],
+			folderId: ['fld-1'],
+			output: '/tmp/mixed.n8np',
+			versionPolicy: 'published-strict',
+		});
+
+		await command.run();
+
+		expect(exportPackage).toHaveBeenCalledWith({
+			workflowIds: ['wf-1'],
+			folderIds: ['fld-1'],
+			includeVariableValues: true,
+			includeTags: true,
+			dependencyPolicy: 'fail',
+			versionPolicy: 'published-strict',
+		});
+	});
+
+	it('forwards a non-default version policy for projects', async () => {
+		const { command, exportPackage } = stubCommand({
+			projectId: ['proj-1'],
+			output: '/tmp/projects.n8np',
+			versionPolicy: 'ignore-unpublished',
+		});
+
+		await command.run();
+
+		expect(exportPackage).toHaveBeenCalledWith({
+			projectIds: ['proj-1'],
+			includeVariableValues: true,
+			includeTags: true,
+			dependencyPolicy: 'fail',
+			versionPolicy: 'ignore-unpublished',
+		});
+	});
+
+	it('forwards includeArchived when set to true', async () => {
+		const { command, exportPackage } = stubCommand({
+			workflowId: ['wf-1'],
+			output: '/tmp/archive.n8np',
+			includeArchived: 'true',
+		});
+
+		await command.run();
+
+		expect(exportPackage).toHaveBeenCalledWith({
+			workflowIds: ['wf-1'],
+			folderIds: [],
+			includeVariableValues: true,
+			includeTags: true,
+			dependencyPolicy: 'fail',
+			includeArchived: true,
+		});
+	});
+
+	it('forwards a non-default credential export policy for workflows and folders', async () => {
+		const { command, exportPackage } = stubCommand({
+			workflowId: ['wf-1'],
+			output: '/tmp/team.n8np',
+			credentialExportPolicy: 'no-values',
+		});
+
+		await command.run();
+
+		expect(exportPackage).toHaveBeenCalledWith({
+			workflowIds: ['wf-1'],
+			folderIds: [],
+			includeVariableValues: true,
+			includeTags: true,
+			dependencyPolicy: 'fail',
+			credentialExportPolicy: 'no-values',
+		});
+	});
+
+	it('forwards a non-default credential export policy for projects', async () => {
+		const { command, exportPackage } = stubCommand({
+			projectId: ['proj-1'],
+			output: '/tmp/projects.n8np',
+			credentialExportPolicy: 'no-values',
+		});
+
+		await command.run();
+
+		expect(exportPackage).toHaveBeenCalledWith({
+			projectIds: ['proj-1'],
+			includeVariableValues: true,
+			includeTags: true,
+			dependencyPolicy: 'fail',
+			credentialExportPolicy: 'no-values',
 		});
 	});
 
@@ -129,16 +292,17 @@ describe('package export command', () => {
 		expect(exportPackage).toHaveBeenCalledWith({
 			projectIds: ['proj-1', 'proj-2'],
 			includeVariableValues: true,
-			missingWorkflowDependencyPolicy: 'fail',
+			includeTags: true,
+			dependencyPolicy: 'fail',
 		});
 		expect(mockedWriteFileSync).toHaveBeenCalledWith('/tmp/projects.n8np', Buffer.from([1, 2, 3]));
 	});
 
-	it('forwards a non-default missing workflow dependency policy for projects', async () => {
+	it('forwards a non-default dependency policy for projects', async () => {
 		const { command, exportPackage } = stubCommand({
 			projectId: ['proj-1'],
 			output: '/tmp/projects.n8np',
-			missingWorkflowDependencyPolicy: 'include-in-package',
+			dependencyPolicy: 'include-in-package',
 		});
 
 		await command.run();
@@ -146,7 +310,8 @@ describe('package export command', () => {
 		expect(exportPackage).toHaveBeenCalledWith({
 			projectIds: ['proj-1'],
 			includeVariableValues: true,
-			missingWorkflowDependencyPolicy: 'include-in-package',
+			includeTags: true,
+			dependencyPolicy: 'include-in-package',
 		});
 	});
 
@@ -163,7 +328,8 @@ describe('package export command', () => {
 			workflowIds: ['wf-1'],
 			folderIds: [],
 			includeVariableValues: false,
-			missingWorkflowDependencyPolicy: 'fail',
+			includeTags: true,
+			dependencyPolicy: 'fail',
 		});
 	});
 
@@ -179,8 +345,69 @@ describe('package export command', () => {
 		expect(exportPackage).toHaveBeenCalledWith({
 			projectIds: ['proj-1'],
 			includeVariableValues: false,
-			missingWorkflowDependencyPolicy: 'fail',
+			includeTags: true,
+			dependencyPolicy: 'fail',
 		});
+	});
+
+	it('forwards includeTags=false when the flag is set', async () => {
+		const { command, exportPackage } = stubCommand({
+			workflowId: ['wf-1'],
+			output: '/tmp/export.n8np',
+			includeTags: 'false',
+		});
+
+		await command.run();
+
+		expect(exportPackage).toHaveBeenCalledWith({
+			workflowIds: ['wf-1'],
+			folderIds: [],
+			includeVariableValues: true,
+			includeTags: false,
+			dependencyPolicy: 'fail',
+		});
+	});
+
+	it('forwards includeTags=false for a project export', async () => {
+		const { command, exportPackage } = stubCommand({
+			projectId: ['proj-1'],
+			output: '/tmp/project.n8np',
+			includeTags: 'false',
+		});
+
+		await command.run();
+
+		expect(exportPackage).toHaveBeenCalledWith({
+			projectIds: ['proj-1'],
+			includeVariableValues: true,
+			includeTags: false,
+			dependencyPolicy: 'fail',
+		});
+	});
+
+	it('treats an explicit --include-tags=true like the default', async () => {
+		const { command, exportPackage } = stubCommand({
+			workflowId: ['wf-1'],
+			output: '/tmp/export.n8np',
+			includeTags: 'true',
+		});
+
+		await command.run();
+
+		expect(exportPackage).toHaveBeenCalledWith({
+			workflowIds: ['wf-1'],
+			folderIds: [],
+			includeVariableValues: true,
+			includeTags: true,
+			dependencyPolicy: 'fail',
+		});
+	});
+
+	it('declares the includeTags flag with its alias, options, and default', () => {
+		const flag = PackageExport.flags.includeTags;
+		expect(flag.aliases).toEqual(['include-tags']);
+		expect(flag.options).toEqual(['true', 'false']);
+		expect(flag.default).toBe('true');
 	});
 
 	it('treats an explicit --include-variable-values=true like the default', async () => {
@@ -196,40 +423,77 @@ describe('package export command', () => {
 			workflowIds: ['wf-1'],
 			folderIds: [],
 			includeVariableValues: true,
-			missingWorkflowDependencyPolicy: 'fail',
+			includeTags: true,
+			dependencyPolicy: 'fail',
 		});
 	});
 
-	it('rejects providing both workflow and project IDs', async () => {
-		const { command, exportPackage } = stubCommand({
-			workflowId: ['wf-1'],
-			projectId: ['proj-1'],
-			output: '/tmp/export.n8np',
-		});
-
-		await expect(command.run()).rejects.toThrow(
-			'Provide either --workflow-id/--folder-id or --project-id, not both',
-		);
-		expect(exportPackage).not.toHaveBeenCalled();
-	});
-
-	it('rejects providing both folder and project IDs', async () => {
-		const { command, exportPackage } = stubCommand({
-			folderId: ['fld-1'],
-			projectId: ['proj-1'],
-			output: '/tmp/export.n8np',
-		});
-
-		await expect(command.run()).rejects.toThrow(
-			'Provide either --workflow-id/--folder-id or --project-id, not both',
-		);
-		expect(exportPackage).not.toHaveBeenCalled();
-	});
+	it.each(['agent-id', 'workflow-id', 'folder-id'])(
+		'rejects --%s with a project selection',
+		async (flag) => {
+			const command = new PackageExport(
+				[`--${flag}=entity`, '--project-id=project'],
+				await Config.load(process.cwd()),
+			);
+			await expect(command.run()).rejects.toThrow(
+				'Provide either --agent-id/--workflow-id/--folder-id or --project-id, not both',
+			);
+		},
+	);
 
 	it('errors when neither a workflow, folder, nor project is given', async () => {
 		const { command, exportPackage } = stubCommand({ output: '/tmp/empty.n8np' });
 
 		await expect(command.run()).rejects.toThrow(/at least one/i);
 		expect(exportPackage).not.toHaveBeenCalled();
+	});
+
+	it('omits a zero folder count from a workflow-only export message', async () => {
+		const exportPackage = vi.fn().mockResolvedValue({
+			archive: Buffer.from([1, 2, 3]),
+			counts: { workflows: 2, folders: 0, credentials: 0, dataTables: 0, variables: 0 },
+		});
+		const { command, internals } = stubCommand(
+			{ workflowId: ['wf-1', 'wf-2'], output: '/tmp/team.n8np' },
+			exportPackage,
+		);
+
+		await command.run();
+
+		const message = vi.mocked(internals.succeed).mock.calls[0][0];
+		expect(message).toBe('Exported 2 workflow(s) to /tmp/team.n8np');
+		expect(message).not.toContain('folder');
+	});
+
+	it('reports the real bundled workflow count for a folder export', async () => {
+		const exportPackage = vi.fn().mockResolvedValue({
+			archive: Buffer.from([1, 2, 3]),
+			counts: { workflows: 3, folders: 1, credentials: 0, dataTables: 0, variables: 0 },
+		});
+		const { command, internals } = stubCommand(
+			{ folderId: ['fld-1'], output: '/tmp/folders.n8np' },
+			exportPackage,
+		);
+
+		await command.run();
+
+		const message = vi.mocked(internals.succeed).mock.calls[0][0];
+		expect(message).toBe('Exported 3 workflow(s), 1 folder(s) to /tmp/folders.n8np');
+	});
+
+	it('includes a non-zero tag count in the export message', async () => {
+		const exportPackage = vi.fn().mockResolvedValue({
+			archive: Buffer.from([1, 2, 3]),
+			counts: { workflows: 2, folders: 0, credentials: 0, dataTables: 0, variables: 0, tags: 2 },
+		});
+		const { command, internals } = stubCommand(
+			{ workflowId: ['wf-1', 'wf-2'], output: '/tmp/team.n8np' },
+			exportPackage,
+		);
+
+		await command.run();
+
+		const message = vi.mocked(internals.succeed).mock.calls[0][0];
+		expect(message).toBe('Exported 2 workflow(s), 2 tag(s) to /tmp/team.n8np');
 	});
 });

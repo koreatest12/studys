@@ -6,46 +6,40 @@ export const DAYTONA_HOME = '/home/daytona';
 export const DAYTONA_WORKSPACE_ROOT = `${DAYTONA_HOME}/${WORKSPACE_DIR}`;
 export const N8N_SANDBOX_HOME = '/home/user';
 export const N8N_SANDBOX_WORKSPACE_ROOT = `${N8N_SANDBOX_HOME}/${WORKSPACE_DIR}`;
+/**
+ * Workspace root that is the same on every provider: the n8n sandbox service
+ * uses it natively, and current Daytona snapshots bake the workspace there.
+ * Sandboxes from older Daytona snapshots use {@link DAYTONA_WORKSPACE_ROOT}.
+ */
+export const PORTABLE_WORKSPACE_ROOT = N8N_SANDBOX_WORKSPACE_ROOT;
 
-export function getPromptWorkspaceRoot(provider: SandboxProvider): string {
+/**
+ * Makes the portable root exist in a Daytona sandbox and prints the root to use. Sandboxes from
+ * older snapshots have their workspace at the Daytona root, so the portable root becomes a link
+ * to it. A link that another call made first also counts. The Daytona user needs sudo to create
+ * the parent directory. When that fails, the command prints the Daytona root.
+ */
+const ENSURE_DAYTONA_PORTABLE_WORKSPACE_ROOT_COMMAND = [
+	`if [ -d '${PORTABLE_WORKSPACE_ROOT}' ]; then echo '${PORTABLE_WORKSPACE_ROOT}';`,
+	'elif SUDO=$([ "$(id -u)" = 0 ] || echo \'sudo -n\')',
+	`&& $SUDO mkdir -p '${N8N_SANDBOX_HOME}'`,
+	`&& $SUDO chown "$(id -u):$(id -g)" '${N8N_SANDBOX_HOME}'`,
+	`&& if [ -d '${DAYTONA_WORKSPACE_ROOT}' ]; then ln -sn '${DAYTONA_WORKSPACE_ROOT}' '${PORTABLE_WORKSPACE_ROOT}' || [ -d '${PORTABLE_WORKSPACE_ROOT}' ]; else mkdir -p '${PORTABLE_WORKSPACE_ROOT}'; fi;`,
+	`then echo '${PORTABLE_WORKSPACE_ROOT}';`,
+	`else echo '${DAYTONA_WORKSPACE_ROOT}'; fi`,
+].join(' ');
+
+export function getSandboxHome(provider: SandboxProvider): string {
 	switch (provider) {
 		case 'daytona':
-			return DAYTONA_WORKSPACE_ROOT;
+			return DAYTONA_HOME;
 		case 'n8n-sandbox':
-			return N8N_SANDBOX_WORKSPACE_ROOT;
+			return N8N_SANDBOX_HOME;
 	}
 }
 
-/**
- * Stable, cache-safe sandbox description for the agent's system prompt.
- *
- * MUST NOT vary across agent rebuilds/resumes: the orchestrator prompt is
- * rebuilt on every resume, so any change here shifts the cached prompt prefix
- * and busts Anthropic prompt caching for the rest of the thread. The live
- * sandbox's `getInstructions()` is deliberately NOT used here because a
- * lazily-resolved workspace reports different text depending on whether its
- * (per-build, in-memory) handle happens to be resolved yet — the workspace is
- * available regardless. Runtime-varying details (resolution state, live command
- * timeout) are excluded; the workspace root is added to the prompt separately.
- */
-export function getPromptSandboxInstructions(_provider: SandboxProvider): string {
-	return 'Cloud sandbox with isolated execution (TypeScript runtime).';
-}
-
-/**
- * Stable, cache-safe filesystem description for the agent's system prompt.
- *
- * Same rationale as {@link getPromptSandboxInstructions}: the lazily-resolved
- * (and scoped) filesystem reports different text before vs after its per-build
- * handle resolves, which would shift the cached prompt prefix across resumes.
- * Derived from the (static) workspace root so it matches the resolved scoped
- * filesystem's own instructions while staying byte-stable.
- */
-export function getPromptFilesystemInstructions(provider: SandboxProvider): string {
-	return [
-		`Filesystem access is scoped to ${getPromptWorkspaceRoot(provider)}.`,
-		'Paths are relative to the workspace root unless you pass an absolute path under that root.',
-	].join(' ');
+export function getPromptWorkspaceRoot(provider: SandboxProvider): string {
+	return `${getSandboxHome(provider)}/${WORKSPACE_DIR}`;
 }
 
 export interface SandboxWorkspace extends SandboxCommandTarget {
@@ -77,15 +71,8 @@ async function initializeLazyFilesystem(workspace: SandboxWorkspace): Promise<vo
 }
 
 function getFallbackHome(workspace: SandboxWorkspace): string {
-	switch (workspace.sandbox?.provider) {
-		case 'n8n-sandbox':
-			return N8N_SANDBOX_HOME;
-		case 'daytona':
-			return DAYTONA_HOME;
-		case undefined:
-		default:
-			return DAYTONA_HOME;
-	}
+	const provider = workspace.sandbox?.provider;
+	return getSandboxHome(provider === 'n8n-sandbox' ? provider : 'daytona');
 }
 
 export async function getWorkspaceRoot(workspace: SandboxWorkspace): Promise<string> {
@@ -103,6 +90,18 @@ export async function getWorkspaceRoot(workspace: SandboxWorkspace): Promise<str
 	if (initializedLocalRoot) {
 		workspaceRootCache.set(workspace, initializedLocalRoot);
 		return initializedLocalRoot;
+	}
+
+	// The snapshot decides where the workspace is baked. Older snapshots get a link at the
+	// portable root, so the agent can use the same paths on every provider.
+	if (workspace.sandbox?.provider === 'daytona') {
+		const result = await runInSandbox(workspace, ENSURE_DAYTONA_PORTABLE_WORKSPACE_ROOT_COMMAND);
+		const root =
+			result.stdout.trim() === PORTABLE_WORKSPACE_ROOT
+				? PORTABLE_WORKSPACE_ROOT
+				: DAYTONA_WORKSPACE_ROOT;
+		workspaceRootCache.set(workspace, root);
+		return root;
 	}
 
 	const result = await runInSandbox(workspace, 'echo $HOME');

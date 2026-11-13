@@ -1,218 +1,107 @@
-import type { Variables } from '@n8n/db';
+import type { OperationContext, Variables } from '@n8n/db';
+import type { SecurityContext } from '@n8n/permissions';
+import { hasGlobalScope } from '@n8n/permissions';
 import { mock } from 'vitest-mock-extended';
 
 import type { VariablesService } from '@/environments.ee/variables/variables.service.ee';
+import { VariableCountLimitReachedError } from '@/errors/variable-count-limit-reached.error';
+import { userHasScopes } from '@/permissions.ee/check-access';
 
+import type { ImportContext } from '../../../n8n-packages.types';
 import { VariableImporter } from '../variable-importer';
 import type { VariableImportPlan } from '../variable.types';
-import type { ImportContext } from '../../../n8n-packages.types';
+
+vi.mock('@n8n/permissions', async (importOriginal) => ({
+	...(await importOriginal<typeof import('@n8n/permissions')>()),
+	hasGlobalScope: vi.fn(),
+}));
+
+vi.mock('@/permissions.ee/check-access', () => ({
+	userHasScopes: vi.fn(),
+}));
 
 const context: ImportContext = {
 	user: mock(),
 	projectId: 'proj-target',
 	folderId: null,
+	publicApi: false,
 };
-
-function makeVariable(overrides: Partial<Variables> = {}): Variables {
-	return {
-		id: 'var-1',
-		key: 'API_URL',
-		type: 'string',
-		value: 'https://api.example.com',
-		project: null,
-		...overrides,
-	} as unknown as Variables;
-}
 
 function makeImporter() {
 	const variablesService = mock<VariablesService>();
-	const importer = new VariableImporter(variablesService);
-	return { importer, variablesService };
+	variablesService.getRemainingVariableQuota.mockResolvedValue(null);
+	return { importer: new VariableImporter(variablesService), variablesService };
 }
 
-describe('VariableImporter', () => {
-	describe('plan', () => {
-		it('returns an empty plan and skips the service when there are no requirements', async () => {
-			const { importer, variablesService } = makeImporter();
+beforeEach(() => {
+	vi.mocked(hasGlobalScope).mockReturnValue(true);
+	vi.mocked(userHasScopes).mockResolvedValue(true);
+});
 
-			const plan = await importer.plan(context, {
-				requirements: undefined,
-				missingMode: 'do-nothing',
-			});
+afterEach(() => {
+	vi.clearAllMocks();
+});
 
-			expect(plan).toEqual({ matched: [], missing: [] });
-			expect(variablesService.getAllCached).not.toHaveBeenCalled();
+/**
+ * Planning, placement, permission and quota behaviour is asserted against real rows by the
+ * workflow and project import integration suites. Only the two cases they cannot reach live here.
+ */
+describe('VariableImporter.apply', () => {
+	const projectCreationPlan: VariableImportPlan = {
+		matched: [],
+		missing: [{ name: 'API_KEY' }],
+		creations: [{ name: 'API_KEY', projectId: 'proj-target' }],
+		conflicts: [],
+		overwrites: [],
+	};
+
+	it('reports a creation with an empty package value as stubbed, not created', async () => {
+		const { importer, variablesService } = makeImporter();
+		variablesService.getAllCached.mockResolvedValue([]);
+
+		const result = await importer.apply(context, {
+			...projectCreationPlan,
+			creations: [{ ...projectCreationPlan.creations[0], value: '' }],
 		});
 
-		it('returns an empty plan for an empty requirements list', async () => {
-			const { importer, variablesService } = makeImporter();
-
-			const plan = await importer.plan(context, {
-				requirements: [],
-				missingMode: 'do-nothing',
-			});
-
-			expect(plan).toEqual({ matched: [], missing: [] });
-			expect(variablesService.getAllCached).not.toHaveBeenCalled();
-		});
-
-		it('reports an unresolved requirement when no variable resolves in the project or globally', async () => {
-			const { importer, variablesService } = makeImporter();
-			variablesService.getAllCached.mockResolvedValue([]);
-
-			const plan = await importer.plan(context, {
-				requirements: [{ name: 'API_URL', usedByWorkflows: ['wf-1'] }],
-				missingMode: 'do-nothing',
-			});
-
-			expect(plan).toEqual({
-				matched: [],
-				missing: [{ name: 'API_URL', usedByWorkflows: ['wf-1'] }],
-			});
-		});
-
-		it('dedupes and sorts usedByWorkflows on unresolved requirements', async () => {
-			const { importer, variablesService } = makeImporter();
-			variablesService.getAllCached.mockResolvedValue([]);
-
-			const plan = await importer.plan(context, {
-				requirements: [{ name: 'API_URL', usedByWorkflows: ['wf-2', 'wf-1', 'wf-2'] }],
-				missingMode: 'do-nothing',
-			});
-
-			expect(plan).toEqual({
-				matched: [],
-				missing: [{ name: 'API_URL', usedByWorkflows: ['wf-1', 'wf-2'] }],
-			});
-		});
-
-		it('matches a project-scoped variable in the target project', async () => {
-			const { importer, variablesService } = makeImporter();
-			variablesService.getAllCached.mockResolvedValue([
-				makeVariable({
-					id: 'var-project',
-					project: { id: 'proj-target' } as Variables['project'],
-				}),
-			]);
-
-			const plan = await importer.plan(context, {
-				requirements: [{ name: 'API_URL', usedByWorkflows: ['wf-1'] }],
-				missingMode: 'do-nothing',
-			});
-
-			expect(plan).toEqual({ matched: ['API_URL'], missing: [] });
-		});
-
-		it('falls back to a global variable when none exists in the target project', async () => {
-			const { importer, variablesService } = makeImporter();
-			variablesService.getAllCached.mockResolvedValue([makeVariable({ id: 'var-global' })]);
-
-			const plan = await importer.plan(context, {
-				requirements: [{ name: 'API_URL', usedByWorkflows: ['wf-1'] }],
-				missingMode: 'do-nothing',
-			});
-
-			expect(plan).toEqual({ matched: ['API_URL'], missing: [] });
-		});
-
-		it('matches the project-scoped variable when it shadows a same-key global', async () => {
-			const { importer, variablesService } = makeImporter();
-			variablesService.getAllCached.mockResolvedValue([
-				makeVariable({ id: 'var-global', value: 'https://global.example.com' }),
-				makeVariable({
-					id: 'var-project',
-					value: 'https://project.example.com',
-					project: { id: 'proj-target' } as Variables['project'],
-				}),
-			]);
-
-			const plan = await importer.plan(context, {
-				requirements: [{ name: 'API_URL', usedByWorkflows: ['wf-1'] }],
-				missingMode: 'do-nothing',
-			});
-
-			expect(plan).toEqual({ matched: ['API_URL'], missing: [] });
-		});
-
-		it('does not match a project-scoped variable from a different project', async () => {
-			const { importer, variablesService } = makeImporter();
-			variablesService.getAllCached.mockResolvedValue([
-				makeVariable({
-					id: 'var-other',
-					project: { id: 'proj-other' } as Variables['project'],
-				}),
-			]);
-
-			const plan = await importer.plan(context, {
-				requirements: [{ name: 'API_URL', usedByWorkflows: ['wf-1'] }],
-				missingMode: 'do-nothing',
-			});
-
-			expect(plan).toEqual({
-				matched: [],
-				missing: [{ name: 'API_URL', usedByWorkflows: ['wf-1'] }],
-			});
-		});
-
-		it('classifies each requirement independently', async () => {
-			const { importer, variablesService } = makeImporter();
-			variablesService.getAllCached.mockResolvedValue([
-				makeVariable({ id: 'var-url', key: 'API_URL' }),
-			]);
-
-			const plan = await importer.plan(context, {
-				requirements: [
-					{ name: 'API_URL', usedByWorkflows: ['wf-1'] },
-					{ name: 'API_KEY', usedByWorkflows: ['wf-1'] },
-				],
-				missingMode: 'do-nothing',
-			});
-
-			expect(plan).toEqual({
-				matched: ['API_URL'],
-				missing: [{ name: 'API_KEY', usedByWorkflows: ['wf-1'] }],
-			});
-		});
+		expect(result).toEqual({ created: [], stubbed: ['API_KEY'], skippedExisting: [], updated: [] });
 	});
 
-	describe('blockingFailures', () => {
-		const plan: VariableImportPlan = {
-			matched: ['API_URL'],
-			missing: [{ name: 'API_KEY', usedByWorkflows: ['wf-1'] }],
+	it('passes the operation context to each variable create and update', async () => {
+		const { importer, variablesService } = makeImporter();
+		variablesService.getAllCached.mockResolvedValue([]);
+		variablesService.getCached.mockResolvedValue(mock<Variables>({ value: 'old' }));
+		const ctx: OperationContext = {
+			security: mock<SecurityContext>({ subIdentityId: 'login-1' }),
 		};
 
-		describe('do-nothing missing mode', () => {
-			it('never blocks, even with unresolved requirements', () => {
-				const { importer } = makeImporter();
+		await importer.apply(
+			{ ...context, ctx },
+			{
+				...projectCreationPlan,
+				overwrites: [{ variableId: 'var-1', name: 'BASE_URL', value: 'new' }],
+			},
+		);
 
-				expect(
-					importer.blockingFailures({ requirements: undefined, missingMode: 'do-nothing' }, plan),
-				).toEqual([]);
-			});
-		});
+		expect(variablesService.create.mock.calls[0][2]).toBe(ctx);
+		expect(variablesService.update.mock.calls[0][3]).toBe(ctx);
+	});
 
-		describe('must-preexist missing mode', () => {
-			it('blocks on every unresolved requirement', () => {
-				const { importer } = makeImporter();
+	it('treats a concurrent create as a skip when the variable now exists at the destination', async () => {
+		const { importer, variablesService } = makeImporter();
+		variablesService.getAllCached.mockResolvedValueOnce([]).mockResolvedValueOnce([
+			mock<Variables>({
+				id: 'var-concurrent',
+				key: 'API_KEY',
+				project: { id: 'proj-target' } as Variables['project'],
+			}),
+		]);
+		variablesService.create.mockRejectedValue(
+			new VariableCountLimitReachedError('Variables limit reached'),
+		);
 
-				expect(
-					importer.blockingFailures(
-						{ requirements: undefined, missingMode: 'must-preexist' },
-						plan,
-					),
-				).toEqual([{ name: 'API_KEY', usedByWorkflows: ['wf-1'] }]);
-			});
+		const result = await importer.apply(context, projectCreationPlan);
 
-			it('does not block when every requirement resolves', () => {
-				const { importer } = makeImporter();
-
-				expect(
-					importer.blockingFailures(
-						{ requirements: undefined, missingMode: 'must-preexist' },
-						{ matched: ['API_URL'], missing: [] },
-					),
-				).toEqual([]);
-			});
-		});
+		expect(result).toEqual({ created: [], stubbed: [], skippedExisting: ['API_KEY'], updated: [] });
 	});
 });

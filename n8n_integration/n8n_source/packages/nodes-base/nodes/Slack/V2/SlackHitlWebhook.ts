@@ -1,5 +1,5 @@
 import { isSlackInteractionRequest, parseHitlCallbackReference } from 'n8n-core';
-import { jsonParse, type IDataObject, type IWebhookFunctions } from 'n8n-workflow';
+import { jsonParse, requestPath, type IDataObject, type IWebhookFunctions } from 'n8n-workflow';
 
 import { slackApiRequest } from './GenericFunctions';
 import { HITL_APPROVE_ACTION_ID, type SectionBlock } from './MessageInterface';
@@ -37,7 +37,7 @@ async function extractSlackResponder(
 			const info = (await slackApiRequest.call(
 				context,
 				'GET',
-				'/users.info',
+				requestPath`/users.info`,
 				{},
 				{ user: user.id },
 			)) as {
@@ -60,15 +60,16 @@ async function extractSlackResponder(
 async function notifyNotAuthorized(
 	context: IWebhookFunctions,
 	payload: SlackInteractionPayload,
+	text: string,
 ): Promise<void> {
 	const channel = payload.channel?.id;
 	const user = payload.user?.id;
 	if (!channel || !user) return;
 	try {
-		await slackApiRequest.call(context, 'POST', '/chat.postEphemeral', {
+		await slackApiRequest.call(context, 'POST', requestPath`/chat.postEphemeral`, {
 			channel,
 			user,
-			text: 'You are not authorized to respond to this request.',
+			text,
 		});
 	} catch {
 		// Missing chat:write scope, or the user left the channel. Nothing more we can do.
@@ -115,7 +116,7 @@ async function lockSlackMessage(
 	const ts = payload.message?.ts ?? payload.container?.message_ts;
 	if (channel && ts) {
 		try {
-			await slackApiRequest.call(context, 'POST', '/chat.update', {
+			await slackApiRequest.call(context, 'POST', requestPath`/chat.update`, {
 				channel,
 				ts,
 				text,
@@ -168,7 +169,7 @@ export async function slackSendAndWaitWebhook(this: IWebhookFunctions) {
 			: (body as SlackInteractionPayload);
 
 	// Fail closed: approve only when both signals agree — the HMAC-minted callback reference
-	// (verified at the CLI layer) and Slack's native action_id. Anything else counts as declined.
+	// (verified before node code runs) and Slack's native action_id. Anything else counts as declined.
 	const action = payload.actions?.[0];
 	const parsed = parseHitlCallbackReference(action?.value ?? '');
 	const approved = parsed?.decision === 'a' && action?.action_id === HITL_APPROVE_ACTION_ID;
@@ -180,7 +181,14 @@ export async function slackSendAndWaitWebhook(this: IWebhookFunctions) {
 		this.logHitlResponse({ approved, authorized: false });
 		// Acknowledge the interaction before the best-effort notification so Slack does not time out and retry the click.
 		this.getResponseObject().status(200).send('');
-		await notifyNotAuthorized(this, payload);
+		await notifyNotAuthorized(
+			this,
+			payload,
+			this.getNodeParameter(
+				'unauthorizedReplyText',
+				'You are not authorized to respond to this request.',
+			) as string,
+		);
 		return { noWebhookResponse: true };
 	}
 
@@ -193,20 +201,29 @@ export async function slackSendAndWaitWebhook(this: IWebhookFunctions) {
 	const actionMs = actionTs ? Number(actionTs) * 1000 : NaN;
 	const respondedAt = new Date(Number.isFinite(actionMs) ? actionMs : Date.now()).toISOString();
 
-	// Rebuild the message: keep everything except the buttons, then add the outcome line.
-	const keptBlocks = (payload.message?.blocks ?? []).filter(
-		(block) => (block as { type?: string }).type !== 'actions',
-	);
-	const lockedBlocks = [
-		...keptBlocks,
-		...buildDecisionBlocks(approved, responder),
-	] as IDataObject[];
-	await lockSlackMessage(
-		this,
-		payload,
-		lockedBlocks,
-		approved ? 'Request approved' : 'Request declined',
-	);
+	// After-decision behavior: showOutcome (default) drops the buttons and appends the outcome
+	// line; removeButtons only strips the buttons; keepMessage leaves the message untouched.
+	const postDecisionBehavior = this.getNodeParameter('postDecisionBehavior', 'showOutcome') as
+		| 'showOutcome'
+		| 'removeButtons'
+		| 'keepMessage';
+	if (postDecisionBehavior !== 'keepMessage') {
+		// Rebuild the message: keep everything except the buttons, then (showOutcome) add the outcome line.
+		const keptBlocks = (payload.message?.blocks ?? []).filter(
+			(block) => (block as { type?: string }).type !== 'actions',
+		);
+		const lockedBlocks = (
+			postDecisionBehavior === 'showOutcome'
+				? [...keptBlocks, ...buildDecisionBlocks(approved, responder)]
+				: keptBlocks
+		) as IDataObject[];
+		await lockSlackMessage(
+			this,
+			payload,
+			lockedBlocks,
+			approved ? 'Request approved' : 'Request declined',
+		);
+	}
 
 	return {
 		webhookResponse: '',

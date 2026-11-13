@@ -11,6 +11,8 @@ import {
 	hasSubMenu,
 	isInputCursorAtEnd,
 	isInputCursorAtStart,
+	isNavigableItem,
+	scrollHighlightedItemIntoView,
 } from './DropdownMenu.utils';
 import DropdownMenuSearchableContent from './DropdownMenuSearchableContent.vue';
 
@@ -56,8 +58,37 @@ describe('DropdownMenu utils', () => {
 			expect(getNextValidIndex(createItems(4, [1]), 2, -1)).toBe(0);
 		});
 
-		it('should return -1 when all items above are disabled', () => {
-			expect(getNextValidIndex(createItems(3, [0]), 1, -1)).toBe(-1);
+		it('should stay on the current item when all items above are disabled', () => {
+			expect(getNextValidIndex(createItems(3, [0]), 1, -1)).toBe(1);
+		});
+
+		it('should stay on the first navigable item when a header is above it', () => {
+			const items: DropdownMenuItemProps[] = [
+				{ id: 'h', label: 'Section', header: true },
+				{ id: 'a', label: 'A' },
+			];
+			expect(getNextValidIndex(items, 1, -1)).toBe(1);
+		});
+
+		it('should skip header items when navigating down', () => {
+			const items: DropdownMenuItemProps[] = [
+				{ id: 'a', label: 'A' },
+				{ id: 'h', label: 'Section', header: true },
+				{ id: 'b', label: 'B' },
+			];
+			expect(getNextValidIndex(items, 0, 1)).toBe(2);
+		});
+	});
+
+	describe('isNavigableItem', () => {
+		it('returns true for a plain enabled item', () => {
+			expect(isNavigableItem({ id: 'a', label: 'A' })).toBe(true);
+		});
+
+		it('returns false for disabled, header, or missing items', () => {
+			expect(isNavigableItem({ id: 'a', label: 'A', disabled: true })).toBe(false);
+			expect(isNavigableItem({ id: 'h', label: 'Section', header: true })).toBe(false);
+			expect(isNavigableItem(undefined)).toBe(false);
 		});
 	});
 
@@ -80,6 +111,28 @@ describe('DropdownMenu utils', () => {
 
 	it('should build deterministic item DOM ids', () => {
 		expect(getItemDomId('abc', 2)).toBe('dropdown-menu-searchable-abc-item-2');
+	});
+
+	it('scrolls the virtually highlighted item into view', () => {
+		const container = document.createElement('div');
+		const items = document.createElement('div');
+		const highlightedItem = document.createElement('button');
+		items.dataset.menuItems = '';
+		highlightedItem.dataset.virtualHighlighted = '';
+		items.appendChild(highlightedItem);
+		container.appendChild(items);
+		vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+			top: 0,
+			bottom: 100,
+		} as DOMRect);
+		vi.spyOn(highlightedItem, 'getBoundingClientRect').mockReturnValue({
+			top: 100,
+			bottom: 120,
+		} as DOMRect);
+
+		scrollHighlightedItemIntoView(container);
+
+		expect(container.scrollTop).toBe(20);
 	});
 
 	describe('input cursor helpers', () => {
@@ -140,7 +193,7 @@ const renderSearchableContent = (
 							'button',
 							{
 								id: getItemDomId(index),
-								'aria-selected': highlightedIndex === index ? 'true' : undefined,
+								'data-virtual-highlighted': highlightedIndex === index ? '' : undefined,
 								onPointermove: (event: PointerEvent) => {
 									(event.currentTarget as HTMLButtonElement).focus();
 									onItemHover(index);
@@ -187,7 +240,7 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 		await userEvent.keyboard('{ArrowDown}');
 
 		await waitFor(() => {
-			expect(wrapper.getByText('Item 1')).toHaveAttribute('aria-selected', 'true');
+			expect(wrapper.getByText('Item 1')).toHaveAttribute('data-virtual-highlighted');
 		});
 	});
 
@@ -198,12 +251,12 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 		await userEvent.keyboard('{ArrowDown}');
 
 		await waitFor(() => {
-			expect(wrapper.getByText('Item 0')).toHaveAttribute('aria-selected', 'true');
+			expect(wrapper.getByText('Item 0')).toHaveAttribute('data-virtual-highlighted');
 		});
 
 		await userEvent.keyboard('{ArrowUp}');
 
-		expect(wrapper.getByText('Item 0')).toHaveAttribute('aria-selected', 'true');
+		expect(wrapper.getByText('Item 0')).toHaveAttribute('data-virtual-highlighted');
 	});
 
 	it('should select the highlighted item and close when pressing Enter', async () => {
@@ -247,7 +300,7 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 		await userEvent.click(input);
 		await fireEvent.pointerMove(wrapper.getByText('Parent'));
 
-		expect(wrapper.getByText('Parent')).toHaveAttribute('aria-selected', 'true');
+		expect(wrapper.getByText('Parent')).toHaveAttribute('data-virtual-highlighted');
 		await waitFor(() => expect(document.activeElement).toBe(input));
 	});
 
@@ -265,7 +318,7 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 			'data-open-submenu-index',
 			'0',
 		);
-		expect(wrapper.getByText('Item 1')).toHaveAttribute('aria-selected', 'true');
+		expect(wrapper.getByText('Item 1')).toHaveAttribute('data-virtual-highlighted');
 	});
 
 	it('should close a pointer-opened submenu when navigating with ArrowDown', async () => {
@@ -292,7 +345,7 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 			'data-open-submenu-index',
 			'-1',
 		);
-		expect(wrapper.getByText('Parent')).toHaveAttribute('aria-selected', 'true');
+		expect(wrapper.getByText('Parent')).toHaveAttribute('data-virtual-highlighted');
 	});
 
 	it('should close when pressing Escape or Tab', async () => {
@@ -326,8 +379,7 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 			expect(activeDescendant).toBeTruthy();
 			expect(document.getElementById(activeDescendant ?? '')).toHaveTextContent('Item 0');
 			expect(document.getElementById(activeDescendant ?? '')).toHaveAttribute(
-				'aria-selected',
-				'true',
+				'data-virtual-highlighted',
 			);
 		});
 	});
@@ -433,13 +485,13 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 		await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
 
 		await waitFor(() => {
-			expect(wrapper.getByText('Item 2')).toHaveAttribute('aria-selected', 'true');
+			expect(wrapper.getByText('Item 2')).toHaveAttribute('data-virtual-highlighted');
 		});
 
 		await wrapper.rerender({ open: true, items: createItems(4), searchDebounce: 0 });
 		await userEvent.keyboard('{ArrowDown}');
 
-		expect(wrapper.getByText('Item 3')).toHaveAttribute('aria-selected', 'true');
+		expect(wrapper.getByText('Item 3')).toHaveAttribute('data-virtual-highlighted');
 	});
 
 	it('should reset the highlighted item when items change and the highlighted item no longer exists', async () => {
@@ -450,7 +502,7 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 		await userEvent.keyboard('{ArrowDown}');
 
 		await waitFor(() => {
-			expect(wrapper.getByText('Item 0')).toHaveAttribute('aria-selected', 'true');
+			expect(wrapper.getByText('Item 0')).toHaveAttribute('data-virtual-highlighted');
 		});
 
 		await wrapper.rerender({
@@ -459,6 +511,6 @@ describe('DropdownMenuSearchableContent keyboard navigation', () => {
 			searchDebounce: 0,
 		});
 
-		expect(wrapper.getByText('Item 1')).not.toHaveAttribute('aria-selected');
+		expect(wrapper.getByText('Item 1')).not.toHaveAttribute('data-virtual-highlighted');
 	});
 });

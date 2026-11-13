@@ -1,5 +1,10 @@
-import { buildHitlCallbackReference, markSlackInteractionRequest } from 'n8n-core';
+import {
+	buildHitlCallbackReference,
+	HITL_CALLBACK_PREFIX_V2,
+	markSlackInteractionRequest,
+} from 'n8n-core';
 import type { IWebhookFunctions } from 'n8n-workflow';
+import { requestPath } from 'n8n-workflow';
 import { mock } from 'vitest-mock-extended';
 
 import * as sendAndWaitUtils from '../../../../../utils/sendAndWait/utils';
@@ -16,11 +21,11 @@ const slackApiRequest = vi.mocked(GenericFunctions.slackApiRequest);
 const verifySignature = vi.mocked(SlackTriggerHelpers.verifySignature);
 const sendAndWaitWebhook = vi.mocked(sendAndWaitUtils.sendAndWaitWebhook);
 
-// The button `value` now carries the shared HITL callback reference (executionId|decision|hmac).
-// The node only parses it for the decision (parseHitlCallbackReference does no HMAC check — the
-// HMAC is verified at the CLI layer), so any secret produces a well-formed reference here.
+// The node reads only the decision; the HMAC is verified before node code runs (v1:
+// `HitlInteractionWebhooks.validate`, v2: `locateResume`). Any secret works here.
 const APPROVE_VALUE = buildHitlCallbackReference('e1', 'a', 'ref-secret');
 const DECLINE_VALUE = buildHitlCallbackReference('e1', 'd', 'ref-secret');
+const STEP_BOUND_APPROVE_VALUE = `${HITL_CALLBACK_PREFIX_V2}AZJqTn9ccACAAAAAAAAAAQ|a|mac`;
 
 interface ContextOptions {
 	method?: string;
@@ -32,6 +37,8 @@ interface ContextOptions {
 	payload?: Record<string, unknown>;
 	approvers?: string[];
 	authentication?: string;
+	unauthorizedReplyText?: string;
+	postDecisionBehavior?: string;
 }
 
 function createContext(opts: ContextOptions) {
@@ -55,6 +62,8 @@ function createContext(opts: ContextOptions) {
 	ctx.getNodeParameter.mockImplementation((name: string, fallback?: unknown) => {
 		if (name === 'approvers') return (opts.approvers ?? []) as never;
 		if (name === 'authentication') return (opts.authentication ?? fallback) as never;
+		if (name === 'unauthorizedReplyText') return (opts.unauthorizedReplyText ?? fallback) as never;
+		if (name === 'postDecisionBehavior') return (opts.postDecisionBehavior ?? fallback) as never;
 		return fallback as never;
 	});
 
@@ -146,6 +155,29 @@ describe('slackSendAndWaitWebhook', () => {
 		expect(sendAndWaitWebhook).not.toHaveBeenCalled();
 		// verifySignature is short-circuited by the missing secret, so no resume data is produced.
 		expect(verifySignature).not.toHaveBeenCalled();
+	});
+
+	it('resumes as approved for a step-bound reference', async () => {
+		const { ctx, httpRequest } = createContext({
+			interaction: true,
+			signatureSecret: 'secret',
+			postDecisionBehavior: 'keepMessage',
+			payload: {
+				user: { id: 'U1', name: 'alice', username: 'alice.w' },
+				actions: [{ action_id: HITL_APPROVE_ACTION_ID, value: STEP_BOUND_APPROVE_VALUE }],
+				channel: { id: 'C1' },
+				message: { ts: '111.222' },
+			},
+		});
+		verifySignature.mockResolvedValue(true);
+		slackApiRequest.mockResolvedValue({ user: { profile: {} } });
+		httpRequest.mockResolvedValue({});
+
+		const result = (await slackSendAndWaitWebhook.call(ctx)) as {
+			workflowData: Array<Array<{ json: { data: Record<string, unknown> } }>>;
+		};
+
+		expect(result.workflowData[0][0].json.data).toMatchObject({ approved: true });
 	});
 
 	it('resumes with the responder, channel and message id, and locks the message via response_url', async () => {
@@ -281,12 +313,108 @@ describe('slackSendAndWaitWebhook', () => {
 		expect(httpRequest).not.toHaveBeenCalled();
 		expect(slackApiRequest).toHaveBeenCalledWith(
 			'POST',
-			'/chat.postEphemeral',
+			requestPath`/chat.postEphemeral`,
 			expect.objectContaining({ channel: 'C1', user: 'U_OTHER' }),
 		);
 		// Must acknowledge with a 200 so Slack doesn't time out and retry the same click.
 		expect(status).toHaveBeenCalledWith(200);
 		expect(send).toHaveBeenCalledWith('');
+	});
+
+	it('sends the configured unauthorized reply text to an ignored responder', async () => {
+		const { ctx } = createContext({
+			interaction: true,
+			signatureSecret: 'secret',
+			approvers: ['U_ALLOWED'],
+			unauthorizedReplyText: 'Only managers can approve.',
+			payload: {
+				user: { id: 'U_OTHER' },
+				actions: [{ action_id: HITL_APPROVE_ACTION_ID, value: APPROVE_VALUE }],
+				channel: { id: 'C1' },
+				message: { ts: '111.222' },
+			},
+		});
+		verifySignature.mockResolvedValue(true);
+		slackApiRequest.mockResolvedValue({ ok: true });
+
+		await slackSendAndWaitWebhook.call(ctx);
+
+		expect(slackApiRequest).toHaveBeenCalledWith(
+			'POST',
+			requestPath`/chat.postEphemeral`,
+			expect.objectContaining({
+				channel: 'C1',
+				user: 'U_OTHER',
+				text: 'Only managers can approve.',
+			}),
+		);
+	});
+
+	it('removes the buttons without an outcome line when After Decision is removeButtons', async () => {
+		const { ctx, httpRequest } = createContext({
+			interaction: true,
+			signatureSecret: 'secret',
+			postDecisionBehavior: 'removeButtons',
+			payload: {
+				user: { id: 'U1' },
+				actions: [
+					{ action_id: HITL_APPROVE_ACTION_ID, value: APPROVE_VALUE, action_ts: '1700000000.000' },
+				],
+				channel: { id: 'C1' },
+				message: {
+					ts: '111.222',
+					blocks: [
+						{ type: 'section', text: { type: 'mrkdwn', text: 'Please approve this request' } },
+						{ type: 'actions', elements: [{ type: 'button' }] },
+					],
+				},
+				response_url: 'https://hooks.slack.com/actions/xxx',
+			},
+		});
+		verifySignature.mockResolvedValue(true);
+		slackApiRequest.mockResolvedValue({ user: { profile: {} } });
+		httpRequest.mockResolvedValue({});
+
+		await slackSendAndWaitWebhook.call(ctx);
+
+		const lockBody = httpRequest.mock.calls[0][0].body as string;
+		// The original message survives and the buttons are stripped, but no "Approved by @user" line is added.
+		expect(lockBody).toContain('Please approve this request');
+		expect(lockBody).not.toContain('"type":"actions"');
+		expect(lockBody).not.toContain('<@U1>');
+	});
+
+	it('leaves the message untouched when After Decision is keepMessage', async () => {
+		const { ctx, httpRequest } = createContext({
+			interaction: true,
+			signatureSecret: 'secret',
+			postDecisionBehavior: 'keepMessage',
+			payload: {
+				user: { id: 'U1' },
+				actions: [
+					{ action_id: HITL_APPROVE_ACTION_ID, value: APPROVE_VALUE, action_ts: '1700000000.000' },
+				],
+				channel: { id: 'C1' },
+				message: { ts: '111.222' },
+				response_url: 'https://hooks.slack.com/actions/xxx',
+			},
+		});
+		verifySignature.mockResolvedValue(true);
+		slackApiRequest.mockResolvedValue({ user: { profile: {} } });
+		httpRequest.mockResolvedValue({});
+
+		const result = (await slackSendAndWaitWebhook.call(ctx)) as {
+			workflowData: Array<Array<{ json: { data: { approved: boolean } } }>>;
+		};
+
+		// No lock attempt (neither response_url nor chat.update), but the execution still resumes.
+		expect(httpRequest).not.toHaveBeenCalled();
+		expect(slackApiRequest).not.toHaveBeenCalledWith(
+			'POST',
+			requestPath`/chat.update`,
+			expect.anything(),
+		);
+		expect(result.workflowData[0][0].json.data.approved).toBe(true);
 	});
 
 	it('resumes when the responder is on the approver list', async () => {
@@ -331,7 +459,7 @@ describe('slackSendAndWaitWebhook', () => {
 		});
 		verifySignature.mockResolvedValue(true);
 		slackApiRequest.mockImplementation(async (_method, resource) => {
-			if (resource === '/users.info') return { user: { profile: {} } };
+			if (String(resource) === '/users.info') return { user: { profile: {} } };
 			return { ok: true };
 		});
 		httpRequest.mockRejectedValue(new Error('response_url expired'));
@@ -340,7 +468,7 @@ describe('slackSendAndWaitWebhook', () => {
 
 		expect(slackApiRequest).toHaveBeenCalledWith(
 			'POST',
-			'/chat.update',
+			requestPath`/chat.update`,
 			expect.objectContaining({ channel: 'C1', ts: '111.222' }),
 		);
 	});
@@ -460,7 +588,7 @@ describe('slackSendAndWaitWebhook', () => {
 		verifySignature.mockResolvedValue(true);
 		httpRequest.mockRejectedValue(new Error('response_url expired'));
 		slackApiRequest.mockImplementation(async (_method, resource) => {
-			if (resource === '/users.info') return { user: { profile: {} } };
+			if (String(resource) === '/users.info') return { user: { profile: {} } };
 			throw new Error('missing chat:write scope');
 		});
 

@@ -31,6 +31,7 @@ const props = defineProps<{
 	isPublished?: boolean;
 	isListLoading?: boolean;
 	isFirstItemShown?: boolean;
+	pendingVersionId?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -110,6 +111,11 @@ const actions = computed(() => {
 	return filteredActions;
 });
 
+const isLoading = computed(
+	() =>
+		Boolean(props.pendingVersionId) && props.pendingVersionId === props.workflowVersion?.versionId,
+);
+
 const onAction = (value: string) => {
 	if (!props.workflowVersion) {
 		return;
@@ -170,7 +176,12 @@ watch(
 					data-test-id="workflow-history-content-actions"
 					@action="onAction"
 				>
-					<N8nButton variant="subtle" size="large" data-test-id="action-toggle-button">
+					<N8nButton
+						variant="outline"
+						size="large"
+						:loading="isLoading"
+						data-test-id="action-toggle-button"
+					>
 						{{ i18n.baseText('workflowHistory.content.actions') }}
 						<N8nIcon class="ml-3xs" icon="chevron-down" size="small" />
 					</N8nButton>
@@ -181,6 +192,8 @@ watch(
 </template>
 
 <style module lang="scss">
+@use '@n8n/design-system/css/mixins/utils';
+
 .content {
 	position: absolute;
 	display: block;
@@ -222,7 +235,7 @@ $descriptionBoxMaxWidth: 330px;
 
 .mainLine {
 	display: block;
-	@include mixins.utils-ellipsis;
+	@include utils.utils-ellipsis;
 	cursor: default;
 }
 

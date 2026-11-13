@@ -1,6 +1,14 @@
 import { NodeTestHarness } from '@nodes-testing/node-test-harness';
-import { NodeConnectionTypes, type WorkflowTestData } from 'n8n-workflow';
+import {
+	NodeConnectionTypes,
+	type IExecuteFunctions,
+	type INode,
+	type WorkflowTestData,
+} from 'n8n-workflow';
 import snowflake from 'snowflake-sdk';
+import { mock } from 'vitest-mock-extended';
+
+import { Snowflake } from '../Snowflake.node';
 
 const mockExecute = vi.fn();
 const mockConnect = vi.fn();
@@ -114,6 +122,32 @@ describe('Test Snowflake, executeQuery - comma-separated query parameters', () =
 	);
 });
 
+describe('Test Snowflake, executeQuery - a comma in a resolved value keeps its own slot', () => {
+	new NodeTestHarness().setupTest(
+		{
+			description: 'does not let a comma in a resolved value land in another parameter slot',
+			input: {
+				workflowData: executeQueryWorkflow(
+					'SELECT * FROM users WHERE name = ? AND city = ?',
+					"={{ 'Doe, Jane' }},Springfield",
+				),
+			},
+			output: { nodeData: {} },
+		},
+		{
+			credentials: { snowflake: snowflakeCredentials },
+			customAssertions() {
+				expect(mockExecute).toHaveBeenCalledWith(
+					expect.objectContaining({
+						sqlText: 'SELECT * FROM users WHERE name = ? AND city = ?',
+						binds: ['Doe, Jane', 'Springfield'],
+					}),
+				);
+			},
+		},
+	);
+});
+
 describe('Test Snowflake, executeQuery - query parameters provided as an array', () => {
 	new NodeTestHarness().setupTest(
 		{
@@ -154,4 +188,47 @@ describe('Test Snowflake, executeQuery - invalid query parameters', () => {
 		},
 		{ credentials: { snowflake: snowflakeCredentials } },
 	);
+});
+
+describe('Test Snowflake, executeQuery - connection cleanup', () => {
+	it('destroys the connection even when a query fails', async () => {
+		const lockError = new Error(
+			"Statement '01c4b15b-020a-7e8c-0001-126284fb9fd6' has locked table 'ORDERS' in " +
+				'transaction 1780060538685000000 and this lock has not yet been released.',
+		);
+
+		// The ALTER SESSION statement succeeds; the user query then fails.
+		mockExecute.mockImplementation(
+			({
+				sqlText,
+				complete,
+			}: {
+				sqlText: string;
+				complete: (error: Error | null, stmt: undefined, rows: unknown[] | undefined) => void;
+			}) =>
+				sqlText.startsWith('ALTER SESSION')
+					? complete(null, undefined, [])
+					: complete(lockError, undefined, undefined),
+		);
+
+		const executeFns = mock<IExecuteFunctions>({
+			getNode: () => mock<INode>({ typeVersion: 1 }),
+			getInputData: () => [{ json: {} }],
+		});
+		executeFns.getNodeParameter.mockImplementation((name, _itemIndex, fallback) => {
+			if (name === 'authentication') return 'credentials';
+			if (name === 'operation') return 'executeQuery';
+			if (name === 'query') return 'UPDATE "ORDERS" SET "STATUS" = 1';
+			return fallback;
+		});
+		executeFns.getCredentials.mockResolvedValue(snowflakeCredentials);
+
+		await expect(new Snowflake().execute.call(executeFns)).rejects.toMatchObject({
+			name: 'NodeOperationError',
+			message: expect.stringContaining('has locked table'),
+			context: expect.objectContaining({ itemIndex: 0 }),
+		});
+
+		expect(mockDestroy).toHaveBeenCalled();
+	});
 });

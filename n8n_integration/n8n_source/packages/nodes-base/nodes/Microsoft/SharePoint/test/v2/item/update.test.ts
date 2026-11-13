@@ -1,5 +1,5 @@
 import type { IDataObject, IExecuteFunctions, INode, ResourceMapperValue } from 'n8n-workflow';
-import { jsonParse } from 'n8n-workflow';
+import { jsonParse, requestPath } from 'n8n-workflow';
 import type { Mock } from 'vitest';
 import type { DeepMockProxy } from 'vitest-mock-extended';
 import { mock, mockDeep } from 'vitest-mock-extended';
@@ -7,23 +7,26 @@ import { mock, mockDeep } from 'vitest-mock-extended';
 import { versionDescription } from '../../../v2/actions/versionDescription';
 import { buildItemFieldsPayload } from '../../../v2/item';
 import { MicrosoftSharePointV2 } from '../../../v2/MicrosoftSharePointV2.node';
-import type * as _importType0 from '../../../v2/transport';
-import * as transport from '../../../v2/transport';
+import type * as _importType0 from '../../../transport';
+import * as transport from '../../../transport';
 
-// Real transport module except the network helper, so getSharePointCredentialType
-// keeps its real behavior; only microsoftApiRequest is stubbed.
-vi.mock('../../../v2/transport', async () => {
-	const originalModule = await vi.importActual<typeof _importType0>('../../../v2/transport');
+// Real transport module except the network helpers, so getSharePointCredentialType
+// keeps its real behavior. microsoftApiRequestAllItems is stubbed too: the item
+// lookup routes through it, and stubbing it lets a test hand back the matched
+// rows directly (its real paging is covered in lookup.test.ts).
+vi.mock('../../../transport', async () => {
+	const originalModule = await vi.importActual<typeof _importType0>('../../../transport');
 	return {
 		...originalModule,
 		microsoftApiRequest: vi.fn(),
+		microsoftApiRequestAllItems: vi.fn(),
 	};
 });
 
 const SITE_ID = 'site1';
 const LIST_ID = 'list1';
 const ITEM_ID = 'item1';
-const ITEMS_PATH = `/v1.0/sites/${SITE_ID}/lists/${LIST_ID}/items`;
+const ITEMS_PATH = requestPath`/v1.0/sites/${SITE_ID}/lists/${LIST_ID}/items`;
 
 // v1's pinned update output (test/item/update.workflow.json) — v2 must return
 // the same full listItem envelope for the same update.
@@ -83,6 +86,7 @@ describe('Microsoft SharePoint v2 — Item: Update', () => {
 	let node: MicrosoftSharePointV2;
 	let ctx: DeepMockProxy<IExecuteFunctions>;
 	const apiRequest = transport.microsoftApiRequest as Mock;
+	const apiRequestAllItems = transport.microsoftApiRequestAllItems as Mock;
 
 	const setParams = (params: Record<string, unknown>) => {
 		ctx.getNodeParameter.mockImplementation(
@@ -134,7 +138,7 @@ describe('Microsoft SharePoint v2 — Item: Update', () => {
 		expect(apiRequest).toHaveBeenNthCalledWith(
 			1,
 			'PATCH',
-			`${ITEMS_PATH}/${ITEM_ID}/fields`,
+			requestPath`${ITEMS_PATH}/${ITEM_ID}/fields`,
 			{ Title: 'Title 2' },
 			{},
 			undefined,
@@ -143,7 +147,7 @@ describe('Microsoft SharePoint v2 — Item: Update', () => {
 		expect(apiRequest).toHaveBeenNthCalledWith(
 			2,
 			'GET',
-			`${ITEMS_PATH}/${ITEM_ID}`,
+			requestPath`${ITEMS_PATH}/${ITEM_ID}`,
 			{},
 			{ $expand: 'fields' },
 		);
@@ -157,28 +161,29 @@ describe('Microsoft SharePoint v2 — Item: Update', () => {
 				matchingColumns: ['Title'],
 			}),
 		);
+		apiRequestAllItems.mockResolvedValueOnce([{ id: ITEM_ID }]);
 		apiRequest
-			.mockResolvedValueOnce({ value: [{ id: ITEM_ID }] })
 			.mockResolvedValueOnce({ Title: 'Title 2' })
 			.mockResolvedValueOnce({ ...GRAPH_ITEM_REPLY });
 
 		const result = await node.execute.call(ctx);
 
-		expect(apiRequest).toHaveBeenCalledTimes(3);
-		expect(apiRequest).toHaveBeenNthCalledWith(
-			1,
+		// Lookup capped at 2 matches so paged results can't be miscounted.
+		expect(apiRequestAllItems).toHaveBeenCalledWith(
+			'value',
 			'GET',
 			ITEMS_PATH,
 			{},
 			{ $filter: "fields/Title eq 'Title 2'" },
-			undefined,
+			2,
 			{ Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly' },
 		);
+		expect(apiRequest).toHaveBeenCalledTimes(2);
 		// The matched column stays in the write body, exactly like v1
 		expect(apiRequest).toHaveBeenNthCalledWith(
-			2,
+			1,
 			'PATCH',
-			`${ITEMS_PATH}/${ITEM_ID}/fields`,
+			requestPath`${ITEMS_PATH}/${ITEM_ID}/fields`,
 			{ Title: 'Title 2' },
 			{},
 			undefined,
@@ -194,27 +199,28 @@ describe('Microsoft SharePoint v2 — Item: Update', () => {
 				matchingColumns: ['Title'],
 			}),
 		);
-		apiRequest.mockResolvedValueOnce({ value: [] });
+		apiRequestAllItems.mockResolvedValueOnce([]);
 
 		await expect(node.execute.call(ctx)).rejects.toThrow(
 			"The column(s) don't match any existing item",
 		);
-		expect(apiRequest).toHaveBeenCalledTimes(1);
+		expect(apiRequest).not.toHaveBeenCalled();
 	});
 
-	it("throws v1's error when several items match the columns", async () => {
+	it('throws a distinct error and does not update when several items match', async () => {
 		setParams(
 			baseParams({
 				value: { Title: 'Duplicate' },
 				matchingColumns: ['Title'],
 			}),
 		);
-		apiRequest.mockResolvedValueOnce({ value: [{ id: 'item1' }, { id: 'item2' }] });
+		apiRequestAllItems.mockResolvedValueOnce([{ id: 'item1' }, { id: 'item2' }]);
 
 		await expect(node.execute.call(ctx)).rejects.toThrow(
-			"The column(s) don't match any existing item",
+			'Multiple items match the selected column(s)',
 		);
-		expect(apiRequest).toHaveBeenCalledTimes(1);
+		// No write proves the ambiguous match never updated an arbitrary item.
+		expect(apiRequest).not.toHaveBeenCalled();
 	});
 
 	it("throws v1's error when matching by ID but the ID value is empty", async () => {
@@ -238,20 +244,18 @@ describe('Microsoft SharePoint v2 — Item: Update', () => {
 				matchingColumns: ['Title'],
 			}),
 		);
-		apiRequest
-			.mockResolvedValueOnce({ value: [{ id: ITEM_ID }] })
-			.mockResolvedValueOnce({})
-			.mockResolvedValueOnce({ ...GRAPH_ITEM_REPLY });
+		apiRequestAllItems.mockResolvedValueOnce([{ id: ITEM_ID }]);
+		apiRequest.mockResolvedValueOnce({}).mockResolvedValueOnce({ ...GRAPH_ITEM_REPLY });
 
 		await node.execute.call(ctx);
 
-		expect(apiRequest).toHaveBeenNthCalledWith(
-			1,
+		expect(apiRequestAllItems).toHaveBeenCalledWith(
+			'value',
 			'GET',
 			ITEMS_PATH,
 			{},
 			{ $filter: "fields/Title eq 'O''Brien'" },
-			undefined,
+			2,
 			{ Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly' },
 		);
 	});
@@ -297,7 +301,7 @@ describe('Microsoft SharePoint v2 — Item: Update', () => {
 		expect(apiRequest).toHaveBeenNthCalledWith(
 			1,
 			'PATCH',
-			`${ITEMS_PATH}/${ITEM_ID}/fields`,
+			requestPath`${ITEMS_PATH}/${ITEM_ID}/fields`,
 			{ Link: { Url: 'https://example.com', Description: 'Example' } },
 			{},
 			undefined,
@@ -351,7 +355,7 @@ describe('Microsoft SharePoint v2 — Item: Update', () => {
 		expect(apiRequest).toHaveBeenNthCalledWith(
 			1,
 			'PATCH',
-			`${ITEMS_PATH}/${ITEM_ID}/fields`,
+			requestPath`${ITEMS_PATH}/${ITEM_ID}/fields`,
 			{ Title: 'Title 2' },
 			{},
 			undefined,

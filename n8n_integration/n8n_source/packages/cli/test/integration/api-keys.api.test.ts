@@ -1,7 +1,7 @@
 import type { ApiKeyWithRawValue } from '@n8n/api-types';
 import { testDb, randomValidPassword, mockInstance } from '@n8n/backend-test-utils';
 import { GlobalConfig } from '@n8n/config';
-import type { User } from '@n8n/db';
+import type { Person, User } from '@n8n/db';
 import { ApiKeyRepository, GLOBAL_MEMBER_ROLE, GLOBAL_OWNER_ROLE } from '@n8n/db';
 import { Container } from '@n8n/di';
 import {
@@ -17,9 +17,11 @@ import {
 	createAdmin,
 	createMemberWithApiKey,
 	createOwnerWithApiKey,
+	createServiceAccountWithProject,
 	createUser,
 	createUserShell,
 } from './shared/db/users';
+import { createCustomRoleWithScopeSlugs } from './shared/db/roles';
 import type { SuperAgentTest } from './shared/types';
 import * as utils from './shared/utils/';
 
@@ -60,7 +62,7 @@ describe('When public API is disabled', () => {
 });
 
 describe('Owner shell', () => {
-	let ownerShell: User;
+	let ownerShell: Person;
 
 	beforeEach(async () => {
 		ownerShell = await createUserShell(GLOBAL_OWNER_ROLE);
@@ -323,7 +325,8 @@ describe('Owner shell', () => {
 			id: ownerShell.id,
 			firstName: ownerShell.firstName ?? null,
 			lastName: ownerShell.lastName ?? null,
-			email: ownerShell.email,
+			// The owner shell has no email yet. The response type needs a string.
+			email: ownerShell.email ?? '',
 		};
 
 		expect(retrieveAllApiKeysResponse.body.data.counts.all).toBe(2);
@@ -334,7 +337,9 @@ describe('Owner shell', () => {
 			apiKey: publicApiKeyService.redactApiKey(apiKeyWithExpiration.body.data.rawApiKey),
 			createdAt: expect.any(String),
 			updatedAt: expect.any(String),
-			expiresAt: expirationDateInTheFuture,
+			// GET returns JWT `exp`, which can drift 1s from the request value when
+			// sign-time `iat` crosses a second boundary vs generateApiKey's now.
+			expiresAt: publicApiKeyService.getApiKeyExpiration(apiKeyWithExpiration.body.data.rawApiKey),
 			scopes: ['workflow:create'],
 			audience: 'public-api',
 			lastUsedAt: null,
@@ -386,7 +391,7 @@ describe('Owner shell', () => {
 
 describe('Member', () => {
 	const memberPassword = randomValidPassword();
-	let member: User;
+	let member: Person;
 
 	beforeEach(async () => {
 		member = await createUser({
@@ -504,6 +509,24 @@ describe('Member', () => {
 		expect(newApiKeyResponse.statusCode).toBe(400);
 	});
 
+	test('POST /api-keys should create an api key with folder scopes', async () => {
+		const folderScopes: ApiKeyScope[] = [
+			'folder:create',
+			'folder:read',
+			'folder:update',
+			'folder:delete',
+			'folder:list',
+		];
+
+		const newApiKeyResponse = await testServer
+			.authAgentFor(member)
+			.post('/api-keys')
+			.send({ label: 'My API Key', expiresAt: null, scopes: folderScopes })
+			.expect(200);
+
+		expect(newApiKeyResponse.body.data.scopes).toEqual(folderScopes);
+	});
+
 	test('GET /api-keys should fetch the api key redacted', async () => {
 		const expirationDateInTheFuture = Date.now() + 1000;
 
@@ -540,7 +563,9 @@ describe('Member', () => {
 			apiKey: publicApiKeyService.redactApiKey(apiKeyWithExpiration.body.data.rawApiKey),
 			createdAt: expect.any(String),
 			updatedAt: expect.any(String),
-			expiresAt: expirationDateInTheFuture,
+			// GET returns JWT `exp`, which can drift 1s from the request value when
+			// sign-time `iat` crosses a second boundary vs generateApiKey's now.
+			expiresAt: publicApiKeyService.getApiKeyExpiration(apiKeyWithExpiration.body.data.rawApiKey),
 			scopes: ['workflow:create'],
 			audience: 'public-api',
 			lastUsedAt: null,
@@ -813,6 +838,23 @@ describe('Cross-user behavior (admin scope)', () => {
 		);
 	});
 
+	test('GET /api-keys names a service account owner in the owner list', async () => {
+		const ownerWithKey = await createOwnerWithApiKey();
+		const serviceAccount = await createServiceAccountWithProject(GLOBAL_MEMBER_ROLE, 'Deploy bot');
+		await addApiKey(serviceAccount);
+
+		const response = await testServer
+			.authAgentFor(ownerWithKey)
+			.get('/api-keys?ownership=all')
+			.expect(200);
+
+		expect(response.body.data.owners).toEqual(
+			expect.arrayContaining([
+				{ id: serviceAccount.id, firstName: 'Deploy bot', lastName: null, email: '', keyCount: 1 },
+			]),
+		);
+	});
+
 	test('GET /api-keys reports per-owner key counts and a true total independent of filters', async () => {
 		// One owner with several keys, one with a single key, so the grouped
 		// COUNT(...) is exercised beyond the trivial one-key case.
@@ -841,5 +883,91 @@ describe('Cross-user behavior (admin scope)', () => {
 		expect(response.body.data.items).toHaveLength(1);
 		expect(response.body.data.counts.all).toBe(1);
 		expect(response.body.data.totals.all).toBe(4);
+	});
+});
+
+describe('User with a role that grants no apiKey scopes', () => {
+	let restrictedUser: User;
+	let authAgent: SuperAgentTest;
+
+	beforeEach(async () => {
+		const restrictedRole = await createCustomRoleWithScopeSlugs(['role:manageProject'], {
+			roleType: 'global',
+		});
+		restrictedUser = await createUser({
+			password: randomValidPassword(),
+			role: restrictedRole,
+		});
+		authAgent = testServer.authAgentFor(restrictedUser);
+	});
+
+	test('GET /api-keys should return own keys', async () => {
+		const ownKey = await addApiKey(restrictedUser, { scopes: ['workflow:create'] });
+
+		const response = await authAgent.get('/api-keys').expect(200);
+
+		expect(response.body.data.counts.all).toBe(1);
+		expect(response.body.data.items).toHaveLength(1);
+		expect(response.body.data.items[0].id).toBe(ownKey.id);
+	});
+
+	test("GET /api-keys should never include other users' keys", async () => {
+		await createOwnerWithApiKey();
+		await addApiKey(restrictedUser, { scopes: ['workflow:create'] });
+
+		const response = await authAgent.get('/api-keys?ownership=all').expect(200);
+
+		expect(response.body.data.items).toHaveLength(1);
+		expect(
+			response.body.data.items.every(
+				(apiKey: { userId: string }) => apiKey.userId === restrictedUser.id,
+			),
+		).toBe(true);
+		expect(response.body.data.owners).toEqual([]);
+	});
+
+	test('DELETE /api-keys/:id should revoke an own key', async () => {
+		const ownKey = await addApiKey(restrictedUser, { scopes: ['workflow:create'] });
+
+		const response = await authAgent.delete(`/api-keys/${ownKey.id}`).expect(200);
+
+		expect(response.body.data.success).toBe(true);
+
+		const remaining = await authAgent.get('/api-keys').expect(200);
+		expect(remaining.body.data.items).toHaveLength(0);
+	});
+
+	test("DELETE /api-keys/:id should 404 for another user's key", async () => {
+		const otherUser = await createOwnerWithApiKey();
+
+		await authAgent.delete(`/api-keys/${otherUser.apiKeys[0].id}`).expect(404);
+	});
+
+	test('POST /api-keys should be forbidden', async () => {
+		await authAgent
+			.post('/api-keys')
+			.send({ label: 'My API Key', expiresAt: null, scopes: ['workflow:create'] })
+			.expect(403);
+	});
+
+	test('PATCH /api-keys/:id should be forbidden even for an own key', async () => {
+		const ownKey = await addApiKey(restrictedUser, { scopes: ['workflow:create'] });
+
+		await authAgent
+			.patch(`/api-keys/${ownKey.id}`)
+			.send({ label: 'Updated label', scopes: ['workflow:create'] })
+			.expect(403);
+	});
+
+	test('POST /api-keys/:id/rotate should be forbidden', async () => {
+		const ownKey = await addApiKey(restrictedUser, { scopes: ['workflow:create'] });
+
+		await authAgent.post(`/api-keys/${ownKey.id}/rotate`).expect(403);
+	});
+
+	test('GET /api-keys/scopes should return the scopes assignable by the role', async () => {
+		const response = await authAgent.get('/api-keys/scopes').expect(200);
+
+		expect(Array.isArray(response.body.data)).toBe(true);
 	});
 });

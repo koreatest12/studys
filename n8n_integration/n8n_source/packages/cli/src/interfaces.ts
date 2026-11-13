@@ -23,6 +23,7 @@ import type {
 	IWorkflowExecutionDataProcess,
 	IExecutionContext,
 	WorkflowExecutionSource,
+	ExecutionStorageLocation,
 } from 'n8n-workflow';
 import type PCancelable from 'p-cancelable';
 
@@ -35,6 +36,27 @@ export interface ICredentialsTypeData {
 
 export interface ICredentialsOverwrite {
 	[key: string]: ICredentialDataDecryptedObject;
+}
+
+/** Client fields of one managed OAuth app, with the version that identifies it. */
+export type ManagedVersionEntry = ICredentialDataDecryptedObject & { version: number };
+
+/**
+ * How a credential relates to the managed app of its type.
+ * - `managed`: the overwrite supplies the client of the credential.
+ * - `missing-app`: the credential is bound to a version that no app has any more. It needs a reconnect.
+ * - `not-managed`: no overwrite applies, because there is none or the credential has its own client.
+ */
+export type ManagedAuthState = 'managed' | 'missing-app' | 'not-managed';
+
+/** An overwrite payload after parsing: the base entries and the newer app of each type in a rollout. */
+export interface ParsedCredentialsOverwrites {
+	entries: ICredentialsOverwrite;
+	/** Version of the base entry, for types that state one. A missing type means version 1. */
+	entryVersions: Record<string, number>;
+	versions: Record<string, ManagedVersionEntry>;
+	/** Parts of the payload that the parser skipped, each with the reason. */
+	problems: string[];
 }
 
 // ----------------------------------
@@ -70,7 +92,8 @@ export interface IWorkflowToImport
 	owner?:
 		| {
 				type: 'personal';
-				personalEmail: string;
+				/** Null when the owner has no email, for example a service account. */
+				personalEmail: string | null;
 		  }
 		| {
 				type: 'team';
@@ -132,16 +155,45 @@ export interface IExecutionsCurrentSummary {
 	status: ExecutionStatus;
 }
 
+/**
+ * An already-persisted execution a process wants to take over, plus the status it must
+ * still be in for the claim to succeed. The status travels with the id so the takeover
+ * is a compare-and-swap: if the row moved on, another process already claimed it.
+ */
+export interface ResumableExecution {
+	executionId: string;
+	/** `waiting` for a row being resumed, `new` for one enqueued before a restart. */
+	expectedStatus: Extract<ExecutionStatus, 'new' | 'waiting'>;
+	/** Store recorded on the row. A resume keeps writing there, whatever the configured mode. */
+	storedAt?: ExecutionStorageLocation;
+	/** Set for an engine v2 execution, which has no row to take over. */
+	engineResume?: EngineV2ResumeRequest;
+}
+
+/** What the control plane forwards to the data plane to end a wait. */
+export interface EngineV2ResumeRequest {
+	/** The waiting step that `locateResume` named. */
+	stepId: string;
+	/**
+	 * The resume token from the request. The control plane does not read it
+	 * (ADR-20260904-a-derived-token-authorizes-a-resume-request, decision 7).
+	 */
+	token: string;
+}
+
 export interface IExecutingWorkflowData {
 	executionData: IWorkflowExecutionDataProcess;
 	startedAt: Date;
 	/** This promise rejects when the execution is stopped. When the execution finishes (successfully or not), the promise resolves. */
 	postExecutePromise: IDeferredPromise<IRun | undefined>;
+	/** True once `postExecutePromise` has settled, so the run has stopped writing execution data. */
+	postExecuteSettled?: boolean;
 	/** HTTPResponse needed for streaming responses */
 	httpResponse?: Response;
 	responsePromise?: IDeferredPromise<IExecuteResponsePromiseData>;
 	workflowExecution?: PCancelable<IRun>;
 	status: ExecutionStatus;
+	isQueueJob?: boolean;
 }
 
 export interface IActiveDirectorySettings {
@@ -196,13 +248,23 @@ export interface IExecutionTrackProperties extends ITelemetryTrackProperties {
 	credential_resolver_id?: string;
 	execution_source?: WorkflowExecutionSource;
 	mock_data_sources?: string;
+	/** Number of credentials the run uses only through the acting user's own access. */
+	personal_credentials_count?: number;
 }
 
 export interface IAgentExecutionTrackProperties extends ITelemetryTrackProperties {
 	agent_id: string;
-	/** n8n user ID, present only when the agent run has direct n8n user context. */
+	/**
+	 * n8n user ID, present only when the agent run has direct n8n user context —
+	 * so in-app chat and manual task runs, but never chat integrations or cron.
+	 */
 	user_id?: string;
-	/** Fresh user turns only. Resume continuations do not increment this count. */
+	run_type: AgentRunTelemetryType;
+	source?: string;
+	/**
+	 * Fresh user turns only. Resume continuations and delegated child runs do not
+	 * increment this count.
+	 */
 	message_count?: number;
 	/** AI SDK usage from agent, title, memory generation, and embedding calls. */
 	token_count?: number;
@@ -232,16 +294,27 @@ export interface IAgentConfigurationTelemetryProperties {
 
 export interface IAgentTurnFinishedTrackProperties extends ITelemetryTrackProperties {
 	agent_id: string;
+	user_id?: string;
 	/** Internal aggregation key only. This must never be emitted to telemetry. */
 	thread_id: string;
 	run_type: AgentRunTelemetryType;
+	source?: string;
 	/** Absent for saved agents; 'inline' for node-embedded agent definitions. */
 	agent_type?: 'inline';
 	turn_status: AgentTurnTelemetryStatus;
 	configuration: IAgentConfigurationTelemetryProperties;
 	latency_ms: number;
 	cost: number;
+	/**
+	 * Tokens for this turn only, from the same recorded usage as `cost` — so the
+	 * two reconcile. Narrower than the token count on `Agent execution count`,
+	 * which also covers LLM calls belonging to no turn.
+	 */
+	token_count: number;
 	tool_call_count: number;
+	/** Successful `load_skill` calls that activated a skill in this turn. */
+	skill_load_count?: number;
+	loaded_skill_ids?: string[];
 }
 
 // ----------------------------------

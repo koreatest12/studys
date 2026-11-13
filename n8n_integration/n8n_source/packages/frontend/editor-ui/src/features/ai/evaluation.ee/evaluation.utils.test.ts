@@ -11,10 +11,12 @@ import {
 	formatDeltaPercent,
 	formatDuration,
 	formatMetricAverage,
+	formatMetricDelta,
 	formatMetricLabel,
 	formatMetricPercent,
 	formatMetricRawScore,
 	formatMetricRawScoreSum,
+	formatMetricValue,
 	formatTokens,
 	getDefaultOrderedColumns,
 	getDeltaTone,
@@ -1292,6 +1294,61 @@ describe('utils', () => {
 				expect(formatMetricPercent(0.5, { category: 'custom' })).toBe('50%');
 			});
 		});
+
+		describe('with a resolved scale (from the run config snapshot)', () => {
+			it('renders a custom 1–5 judge metric as 100%, not its raw 5', () => {
+				// The bug: a custom-named judge metric is category 'custom', so the
+				// heuristic returned the raw "5%". The resolved scale corrects it.
+				expect(
+					formatMetricPercent(5, { key: 'Tone Match', category: 'custom', scale: 'oneToFive' }),
+				).toBe('100%');
+				expect(formatMetricPercent(4, { category: 'custom', scale: 'oneToFive' })).toBe('80%');
+			});
+			it('clamps boolean-scale values to a percent', () => {
+				expect(formatMetricPercent(1, { scale: 'boolean' })).toBe('100%');
+				expect(formatMetricPercent(0.75, { scale: 'boolean' })).toBe('75%');
+			});
+			it('passes unit-scale 0–1 values through', () => {
+				expect(formatMetricPercent(0.9, { scale: 'unit' })).toBe('90%');
+			});
+			it('shows a dash when the value is out of range for the scale', () => {
+				expect(formatMetricPercent(6, { scale: 'oneToFive' })).toBe('–');
+			});
+			it('lets the scale override the category heuristic', () => {
+				// category 'aiBased' alone would divide by 5; the unit scale wins.
+				expect(formatMetricPercent(0.9, { category: 'aiBased', scale: 'unit' })).toBe('90%');
+			});
+		});
+	});
+
+	describe('formatMetricValue', () => {
+		it('renders out-of-range custom metrics as numbers instead of percentages', () => {
+			expect(formatMetricValue(706, { category: 'custom' })).toBe('706');
+			expect(formatMetricValue(1694, { category: 'custom' })).toBe('1,694');
+			expect(formatMetricValue(1.47, { category: 'custom' })).toBe('1.47');
+			expect(formatMetricValue(12_345_678, { category: 'custom' })).toBe('12,345,678');
+		});
+
+		it.each([
+			[0, '0'],
+			[1, '1'],
+			[-0.5, '-0.5'],
+			[0.004, '0.004'],
+		])('renders an unscaled custom value of %s as %s', (value, expected) => {
+			expect(formatMetricValue(value, { category: 'custom' })).toBe(expected);
+		});
+
+		it('renders a metric with no source or scale as a number', () => {
+			expect(formatMetricValue(0.73, { key: 'metricFromDeletedNode' })).toBe('0.73');
+		});
+
+		it('keeps a built-in metric with no source as a percentage', () => {
+			expect(formatMetricValue(0.73, { key: 'stringSimilarity' })).toBe('73%');
+		});
+
+		it('lets an explicit scale override the custom-metric heuristic', () => {
+			expect(formatMetricValue(5, { category: 'custom', scale: 'oneToFive' })).toBe('100%');
+		});
 	});
 
 	describe('formatMetricAverage', () => {
@@ -1333,6 +1390,12 @@ describe('utils', () => {
 			expect(formatMetricRawScore(undefined, { category: 'aiBased' })).toBe('');
 			expect(formatMetricRawScore(NaN, { category: 'aiBased' })).toBe('');
 		});
+		it('uses the resolved scale over the category for the x/5 form', () => {
+			// custom category + oneToFive scale → shows "5/5" (heuristic would hide it).
+			expect(formatMetricRawScore(5, { category: 'custom', scale: 'oneToFive' })).toBe('5/5');
+			// unit scale on an aiBased category → not a /5 metric, so empty.
+			expect(formatMetricRawScore(0.5, { category: 'aiBased', scale: 'unit' })).toBe('');
+		});
 	});
 
 	describe('formatMetricRawScoreSum', () => {
@@ -1356,6 +1419,11 @@ describe('utils', () => {
 			expect(formatMetricRawScoreSum([], { category: 'aiBased' })).toBe('');
 			expect(formatMetricRawScoreSum([undefined, NaN], { category: 'aiBased' })).toBe('');
 		});
+		it('uses the resolved scale over the category for the totals', () => {
+			expect(formatMetricRawScoreSum([4, 5, 4], { category: 'custom', scale: 'oneToFive' })).toBe(
+				'13/15',
+			);
+		});
 	});
 
 	describe('formatDeltaPercent', () => {
@@ -1375,6 +1443,26 @@ describe('utils', () => {
 			it('-2 (5→3) reads as -40%', () => {
 				expect(formatDeltaPercent(-2, { category: 'aiBased' })).toBe('-40%');
 			});
+		});
+
+		describe('with a resolved scale', () => {
+			it('scales a 1–5 delta by the scale, not the category', () => {
+				// custom category would treat +1 as +100%; the oneToFive scale → +20%.
+				expect(formatDeltaPercent(1, { category: 'custom', scale: 'oneToFive' })).toBe('+20%');
+			});
+		});
+	});
+
+	describe('formatMetricDelta', () => {
+		it('renders a raw custom-metric delta without a percent sign', () => {
+			expect(formatMetricDelta(6, { category: 'custom' })).toBe('+6');
+			expect(formatMetricDelta(-2.5, { category: 'custom' })).toBe('-2.5');
+			expect(formatMetricDelta(0.004, { category: 'custom' })).toBe('+0.004');
+		});
+
+		it('preserves percentage-point formatting for score deltas', () => {
+			expect(formatMetricDelta(0.04, { key: 'stringSimilarity' })).toBe('+4%');
+			expect(formatMetricDelta(1, { category: 'aiBased' })).toBe('+20%');
 		});
 	});
 
@@ -1549,6 +1637,30 @@ describe('utils', () => {
 			expect(groups).toEqual([
 				{ key: 'correctness', values: [1] },
 				{ key: 'accuracy', values: [0.9] },
+			]);
+		});
+
+		it('normalizes each run on its own metricScales', () => {
+			// Same metric name, different per-run scale (e.g. its type changed between
+			// runs): each run must normalize on its own snapshot scale.
+			const runs = [
+				{ metrics: { Quality: 5 }, metricScales: { Quality: 'oneToFive' as const } },
+				{ metrics: { Quality: 0.8 }, metricScales: { Quality: 'unit' as const } },
+			];
+
+			expect(buildScoreShapedMetricGroups(runs)).toEqual([{ key: 'Quality', values: [1, 0.8] }]);
+		});
+
+		it("prefers a run's own scale over the default map", () => {
+			const runs = [
+				{ metrics: { Quality: 5 }, metricScales: { Quality: 'oneToFive' as const } },
+				{ metrics: { Quality: 5 }, metricScales: { Quality: 'oneToFive' as const } },
+			];
+
+			// The default map says unit (which would drop 5 as > 1), but each run's own
+			// oneToFive wins.
+			expect(buildScoreShapedMetricGroups(runs, { Quality: 'unit' })).toEqual([
+				{ key: 'Quality', values: [1, 1] },
 			]);
 		});
 	});

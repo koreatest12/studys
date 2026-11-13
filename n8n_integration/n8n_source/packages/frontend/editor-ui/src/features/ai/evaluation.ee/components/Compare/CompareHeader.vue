@@ -4,7 +4,7 @@ import { useI18n } from '@n8n/i18n';
 import { computed, ref } from 'vue';
 
 import { VIEWS } from '@/app/constants';
-import { useToast } from '@/app/composables/useToast';
+import { useToast } from '@n8n/composables/useToast';
 
 import type { CompareVersion } from '../../composables/useCompareData';
 import { useEvalCollectionsStore } from '../../evalCollections.store';
@@ -29,8 +29,9 @@ const isRunning = computed(() => status.value === 'running');
 
 const completedCount = computed(() => countSettledRuns(props.versions));
 
-// Hidden while running so a user can't stack a second wave on an unfinished one.
-const canRerun = computed(() => !isRunning.value);
+// Hidden while running (no stacking a second wave) and when there are no
+// versions to re-run — an empty collection would just 400 on the rerun endpoint.
+const canRerun = computed(() => !isRunning.value && props.versions.length > 0);
 
 const rerunning = ref(false);
 
@@ -76,7 +77,7 @@ const legend = computed(() =>
 			<div :class="$style.titleGroup">
 				<N8nText tag="h2" size="xlarge" bold>{{ collectionName }}</N8nText>
 				<RunningIndicator v-if="isRunning" :completed="completedCount" :total="versions.length" />
-				<N8nBadge v-else :theme="statusBadge.theme" size="small">{{ statusBadge.label }}</N8nBadge>
+				<N8nBadge v-else :variant="statusBadge.theme">{{ statusBadge.label }}</N8nBadge>
 			</div>
 			<N8nButton
 				v-if="canRerun"

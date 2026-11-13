@@ -1,11 +1,14 @@
 import { Service } from '@n8n/di';
 import type { EntityManager } from '@n8n/typeorm';
-import { DataSource, In, Not, Repository } from '@n8n/typeorm';
+import { DataSource, In, Not } from '@n8n/typeorm';
 import type { DeepPartial } from '@n8n/typeorm/common/DeepPartial';
-import type { IDataObject } from 'n8n-workflow';
+import type { IDataObject, JsonObject } from 'n8n-workflow';
 
 import { TestCaseExecution } from '../entities';
 import type { TestCaseExecutionErrorCode } from '../entities/types-db';
+import type { OperationContext } from '../services/transaction';
+import { TransactionRunner } from '../services/transaction';
+import { BaseRepository } from './base-repository';
 
 type StatusUpdateOptions = {
 	testRunId: string;
@@ -27,9 +30,9 @@ type MarkAsCompletedOptions = StatusUpdateOptions & {
 };
 
 @Service()
-export class TestCaseExecutionRepository extends Repository<TestCaseExecution> {
-	constructor(dataSource: DataSource) {
-		super(TestCaseExecution, dataSource.manager);
+export class TestCaseExecutionRepository extends BaseRepository<TestCaseExecution> {
+	constructor(dataSource: DataSource, transactionRunner: TransactionRunner) {
+		super(TestCaseExecution, dataSource.manager, transactionRunner);
 	}
 
 	async createTestCaseExecution(testCaseExecutionProps: DeepPartial<TestCaseExecution>) {
@@ -46,13 +49,13 @@ export class TestCaseExecutionRepository extends Repository<TestCaseExecution> {
 	 */
 	async getManyByTestRunId(
 		testRunId: string,
-		{ skip, take }: { skip?: number; take?: number } = {},
+		{ offset, limit }: { offset: number; limit: number },
 	) {
 		return await this.find({
 			where: { testRun: { id: testRunId } },
 			order: { runIndex: 'ASC', id: 'ASC' },
-			skip,
-			take,
+			skip: offset,
+			take: limit,
 		});
 	}
 
@@ -78,20 +81,24 @@ export class TestCaseExecutionRepository extends Repository<TestCaseExecution> {
 	}
 
 	/**
-	 * Seeds pending test case rows for a run, one per entry in `runIndices`.
-	 * Each row's `runIndex` is set to the corresponding value from the list so
-	 * it always reflects the original dataset position — even for filtered runs
-	 * where only a subset of rows is executed. The FE maps results back by
-	 * `runIndex`, so preserving the original index is critical.
-	 *
-	 * For a full run (all rows), pass `[0, 1, 2, …, N-1]`.
+	 * Seeds pending test case rows for a run, one per entry in `cases`. Each row's
+	 * `runIndex` is set to the given value so it always reflects the original
+	 * dataset position — even for filtered runs where only a subset of rows is
+	 * executed. The FE maps results back by `runIndex`, so preserving the original
+	 * index is critical. The dataset-row `inputs` are seeded up front so the
+	 * compare view can show them while cases are still pending.
 	 */
-	async createPendingBatch(testRunId: string, runIndices: number[]): Promise<TestCaseExecution[]> {
-		const rows = runIndices.map((runIndex) =>
+	async createPendingBatch(
+		testRunId: string,
+		cases: Array<{ runIndex: number; inputs?: JsonObject }>,
+	): Promise<TestCaseExecution[]> {
+		const rows = cases.map(({ runIndex, inputs }) =>
 			this.create({
 				testRun: { id: testRunId },
 				status: 'new',
 				runIndex,
+				// Refined by the runner on execution; seeded here (see doc comment).
+				inputs: inputs ?? null,
 			}),
 		);
 		return await this.save(rows);
@@ -154,10 +161,8 @@ export class TestCaseExecutionRepository extends Repository<TestCaseExecution> {
 		);
 	}
 
-	async markAllPendingAsCancelled(testRunId: string, trx?: EntityManager) {
-		trx = trx ?? this.manager;
-
-		return await trx.update(
+	async markAllPendingAsCancelled(testRunId: string, ctx: OperationContext = {}) {
+		return await this.managerFor(ctx).update(
 			TestCaseExecution,
 			{ testRun: { id: testRunId }, status: Not(In(['success', 'error', 'cancelled'])) },
 			{

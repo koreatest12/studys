@@ -45,6 +45,7 @@
  *
  * Never throws.
  */
+import { sleep } from '@n8n/utils/sleep';
 import workflowSdkPackage from '@n8n/workflow-sdk/package.json';
 import { createHash } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
@@ -93,6 +94,8 @@ export interface BuilderTemplatesServiceOptions {
 	failureRetryIntervalMs?: number;
 	/** When true, the service short-circuits to an empty bundle and never fetches. */
 	disabled?: boolean;
+	/** `fetch` for the archive and sha256 downloads. */
+	fetch: typeof globalThis.fetch;
 	/** Structured logger. */
 	logger: Logger;
 }
@@ -133,6 +136,7 @@ export class BuilderTemplatesService {
 	private readonly retryBackoffBaseMs: number;
 	private readonly failureRetryIntervalMs: number;
 	private readonly disabled: boolean;
+	private readonly fetch: typeof globalThis.fetch;
 	private readonly logger: Logger;
 
 	private state: CacheState | null = null;
@@ -151,6 +155,7 @@ export class BuilderTemplatesService {
 		this.retryBackoffBaseMs = opts.retryBackoffBaseMs ?? DEFAULT_RETRY_BACKOFF_BASE_MS;
 		this.failureRetryIntervalMs = opts.failureRetryIntervalMs ?? DEFAULT_FAILURE_RETRY_INTERVAL_MS;
 		this.disabled = opts.disabled ?? false;
+		this.fetch = opts.fetch;
 		this.logger = opts.logger;
 	}
 
@@ -383,7 +388,7 @@ export class BuilderTemplatesService {
 
 		let response: Response;
 		try {
-			response = await fetch(archiveUrl, {
+			response = await this.fetch(archiveUrl, {
 				headers,
 				signal: AbortSignal.timeout(this.fetchTimeoutMs),
 			});
@@ -445,7 +450,7 @@ export class BuilderTemplatesService {
 	private async fetchSha256Sidecar(channel: Channel): Promise<string | null> {
 		const sha256Url = this.sha256UrlFor(channel);
 		try {
-			const response = await fetch(sha256Url, {
+			const response = await this.fetch(sha256Url, {
 				signal: AbortSignal.timeout(this.fetchTimeoutMs),
 			});
 			if (response.status === 404) {
@@ -542,10 +547,6 @@ function isRetryableStatus(status: number): boolean {
 	return status === 408 || status === 429;
 }
 
-async function sleep(ms: number): Promise<void> {
-	await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function atomicWriteFile(target: string, contents: Buffer | string): Promise<void> {
 	const tmp = `${target}.tmp-${process.pid}-${Date.now()}`;
 	try {
@@ -588,7 +589,7 @@ async function touchArchiveFile(target: string): Promise<void> {
  */
 export function builderTemplatesOptionsFromEnv({
 	logger,
-}: { logger: Logger }): BuilderTemplatesServiceOptions {
+}: { logger: Logger }): Omit<BuilderTemplatesServiceOptions, 'fetch'> {
 	const url = process.env.N8N_INSTANCE_AI_TEMPLATES_URL;
 	const hoursRaw = process.env.N8N_INSTANCE_AI_TEMPLATES_REFRESH_HOURS;
 	const disabled = process.env.N8N_INSTANCE_AI_TEMPLATES_DISABLED;

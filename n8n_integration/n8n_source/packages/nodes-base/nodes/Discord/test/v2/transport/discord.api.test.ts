@@ -1,13 +1,13 @@
 import type { IExecuteFunctions } from 'n8n-workflow';
-import { sleep } from 'n8n-workflow';
+import { requestPath } from 'n8n-workflow';
+
+import { sleep } from '@n8n/utils/sleep';
 
 import { discordApiMultiPartRequest, discordApiRequest } from '../../../v2/transport/discord.api';
 import { handleRateLimitHeaders, requestApi } from '../../../v2/transport/helpers';
 import type { Mock, Mocked } from 'vitest';
-import type * as _importType0 from 'n8n-workflow';
 
-vi.mock('n8n-workflow', async () => ({
-	...(await vi.importActual<typeof _importType0>('n8n-workflow')),
+vi.mock('@n8n/utils/sleep', () => ({
 	sleep: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -95,7 +95,7 @@ describe('Discord v2 > transport', () => {
 				context,
 				{ url: 'https://discord.com/api/v10/x', headers: {} },
 				'discordBotApi',
-				'/x',
+				requestPath`/x`,
 			);
 
 			expect(result).toBe(response);
@@ -117,7 +117,7 @@ describe('Discord v2 > transport', () => {
 				context,
 				{ url: 'https://discord.com/api/v10/x', headers: {} },
 				'discordBotApi',
-				'/x',
+				requestPath`/x`,
 			);
 
 			expect(result).toBe(response);
@@ -137,7 +137,7 @@ describe('Discord v2 > transport', () => {
 				context,
 				{ url: 'https://discord.com/api/v10/x', headers: {} },
 				'discordBotApi',
-				'/x',
+				requestPath`/x`,
 			);
 
 			expect(sleepMock).toHaveBeenCalledWith(1000);
@@ -156,7 +156,7 @@ describe('Discord v2 > transport', () => {
 					context,
 					{ url: 'https://discord.com/api/v10/x', headers: {} },
 					'discordBotApi',
-					'/x',
+					requestPath`/x`,
 				),
 			).rejects.toBe(error);
 
@@ -174,7 +174,7 @@ describe('Discord v2 > transport', () => {
 					context,
 					{ url: 'https://discord.com/api/v10/x', headers: {} },
 					'discordBotApi',
-					'/x',
+					requestPath`/x`,
 				),
 			).rejects.toBe(error);
 
@@ -197,7 +197,7 @@ describe('Discord v2 > transport', () => {
 				context,
 				{ url: 'https://discord.com/api/v10/x', headers: {} },
 				'discordOAuth2Api',
-				'/x',
+				requestPath`/x`,
 			);
 
 			expect(getCredentials).toHaveBeenCalledTimes(1);
@@ -216,9 +216,14 @@ describe('Discord v2 > transport', () => {
 				},
 			});
 
-			const result = await discordApiRequest.call(context, 'POST', '/channels/1/messages', {
-				content: 'hi',
-			});
+			const result = await discordApiRequest.call(
+				context,
+				'POST',
+				requestPath`/channels/1/messages`,
+				{
+					content: 'hi',
+				},
+			);
 
 			expect(result).toEqual({ id: '1' });
 			expect(sleepMock).toHaveBeenCalledWith(2000);
@@ -234,7 +239,9 @@ describe('Discord v2 > transport', () => {
 				},
 			});
 
-			await discordApiRequest.call(context, 'POST', '/channels/1/messages', { content: 'hi' });
+			await discordApiRequest.call(context, 'POST', requestPath`/channels/1/messages`, {
+				content: 'hi',
+			});
 
 			expect(sleepMock).toHaveBeenCalledWith(20);
 		});
@@ -254,13 +261,54 @@ describe('Discord v2 > transport', () => {
 					},
 				});
 
-			const result = await discordApiRequest.call(context, 'POST', '/channels/1/messages', {
-				content: 'hi',
-			});
+			const result = await discordApiRequest.call(
+				context,
+				'POST',
+				requestPath`/channels/1/messages`,
+				{
+					content: 'hi',
+				},
+			);
 
 			expect(result).toEqual({ id: '1' });
 			expect(sleepMock).toHaveBeenNthCalledWith(1, 1000); // retry-after
 			expect(sleepMock).toHaveBeenNthCalledWith(2, 3000); // post-success reset-after
+		});
+
+		it('forwards custom headers (e.g. audit-log reason) to the request', async () => {
+			const { context, requestWithAuthentication } = createMockContext();
+			requestWithAuthentication.mockResolvedValueOnce({ body: { success: true }, headers: {} });
+
+			await discordApiRequest.call(
+				context,
+				'PUT',
+				requestPath`/guilds/1/bans/2`,
+				undefined,
+				undefined,
+				{
+					'X-Audit-Log-Reason': 'Suspicious%20or%20spam%20account',
+				},
+			);
+
+			expect(requestWithAuthentication).toHaveBeenCalledWith(
+				'discordBotApi',
+				expect.objectContaining({
+					headers: { 'X-Audit-Log-Reason': 'Suspicious%20or%20spam%20account' },
+				}),
+			);
+		});
+
+		it('encodes a path value with "/" as one segment', async () => {
+			const { context, requestWithAuthentication } = createMockContext();
+			requestWithAuthentication.mockResolvedValueOnce({ body: { id: '1' }, headers: {} });
+			const channelId = '1168516240332034067/messages';
+
+			await discordApiRequest.call(context, 'GET', requestPath`/channels/${channelId}`);
+
+			const [, options] = requestWithAuthentication.mock.calls[0];
+			expect(String(options.url)).toBe(
+				'https://discord.com/api/v10/channels/1168516240332034067%2Fmessages',
+			);
 		});
 
 		it('wraps non-429 errors as NodeApiError', async () => {
@@ -268,7 +316,9 @@ describe('Discord v2 > transport', () => {
 			requestWithAuthentication.mockRejectedValueOnce({ statusCode: 400, message: 'bad request' });
 
 			await expect(
-				discordApiRequest.call(context, 'POST', '/channels/1/messages', { content: 'hi' }),
+				discordApiRequest.call(context, 'POST', requestPath`/channels/1/messages`, {
+					content: 'hi',
+				}),
 			).rejects.toThrow();
 		});
 	});
@@ -287,7 +337,7 @@ describe('Discord v2 > transport', () => {
 			const result = await discordApiMultiPartRequest.call(
 				context,
 				'POST',
-				'/channels/1/messages',
+				requestPath`/channels/1/messages`,
 				{} as never,
 			);
 
@@ -312,7 +362,7 @@ describe('Discord v2 > transport', () => {
 			const result = await discordApiMultiPartRequest.call(
 				context,
 				'POST',
-				'/channels/1/messages',
+				requestPath`/channels/1/messages`,
 				{} as never,
 			);
 

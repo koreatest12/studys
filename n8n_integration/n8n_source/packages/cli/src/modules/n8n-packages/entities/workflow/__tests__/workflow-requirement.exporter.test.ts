@@ -1,15 +1,33 @@
-import type { ManifestEntry } from '../../../spec/manifest.schema';
+import type { User, WorkflowEntity } from '@n8n/db';
+import { mock } from 'vitest-mock-extended';
+
+import type { WorkflowFinderService } from '@/workflows/workflow-finder.service';
+
+import type { WorkflowManifestEntry } from '../../../spec/manifest.schema';
 import { WorkflowRequirementExporter } from '../workflow-requirement.exporter';
 
-function workflowEntry(id: string, name: string): ManifestEntry {
-	return { id, name, target: `workflows/${id}` };
+const user = mock<User>({ id: 'user-1' });
+
+function workflowEntry(id: string, name: string): WorkflowManifestEntry {
+	return { id, name, target: `workflows/${id}`, isArchived: false };
+}
+
+function makeExporter(accessibleWorkflows: Array<{ id: string; name: string }> = []) {
+	const workflowFinder = mock<WorkflowFinderService>();
+	workflowFinder.findWorkflowsByIdsForUser.mockImplementation(
+		async (workflowIds) =>
+			accessibleWorkflows.filter(({ id }) => workflowIds.includes(id)) as WorkflowEntity[],
+	);
+
+	return { exporter: new WorkflowRequirementExporter(workflowFinder), workflowFinder };
 }
 
 describe('WorkflowRequirementExporter', () => {
-	it('groups requirements by referenced workflow and aggregates usedByWorkflows', () => {
-		const exporter = new WorkflowRequirementExporter();
+	it('groups requirements by referenced workflow and aggregates workflow consumers', async () => {
+		const { exporter, workflowFinder } = makeExporter();
 
-		const result = exporter.export({
+		const result = await exporter.export({
+			user,
 			requirements: [
 				{ workflowId: 'wf-parent-a', referencedWorkflowId: 'wf-child' },
 				{ workflowId: 'wf-parent-a', referencedWorkflowId: 'wf-child' },
@@ -28,24 +46,55 @@ describe('WorkflowRequirementExporter', () => {
 			{
 				id: 'wf-child',
 				name: 'Child',
-				usedByWorkflows: ['wf-parent-a', 'wf-parent-b'],
+				usedBy: [
+					{ kind: 'workflow', id: 'wf-parent-a' },
+					{ kind: 'workflow', id: 'wf-parent-b' },
+				],
 			},
 			{
 				id: 'wf-grandchild',
 				name: 'Grandchild',
-				usedByWorkflows: ['wf-child'],
+				usedBy: [{ kind: 'workflow', id: 'wf-child' }],
 			},
 		]);
+		// Every referenced workflow is in the package, so no name lookup is needed.
+		expect(workflowFinder.findWorkflowsByIdsForUser).not.toHaveBeenCalled();
 	});
 
-	it('returns no package requirements when there are no workflow requirements', () => {
-		const exporter = new WorkflowRequirementExporter();
+	it('fetches best-effort names for referenced workflows not in the package', async () => {
+		const { exporter, workflowFinder } = makeExporter([{ id: 'wf-known', name: 'Known Child' }]);
 
-		const result = exporter.export({
+		const result = await exporter.export({
+			user,
+			requirements: [
+				{ workflowId: 'wf-parent', referencedWorkflowId: 'wf-known' },
+				{ workflowId: 'wf-parent', referencedWorkflowId: 'wf-unknown' },
+			],
+			workflows: [workflowEntry('wf-parent', 'Parent')],
+		});
+
+		expect(result.requirements).toEqual([
+			{ id: 'wf-known', name: 'Known Child', usedBy: [{ kind: 'workflow', id: 'wf-parent' }] },
+			{ id: 'wf-unknown', usedBy: [{ kind: 'workflow', id: 'wf-parent' }] },
+		]);
+		expect(result.requirements[1]).not.toHaveProperty('name');
+		expect(workflowFinder.findWorkflowsByIdsForUser).toHaveBeenCalledWith(
+			['wf-known', 'wf-unknown'],
+			user,
+			['workflow:export'],
+		);
+	});
+
+	it('returns no package requirements when there are no workflow requirements', async () => {
+		const { exporter, workflowFinder } = makeExporter();
+
+		const result = await exporter.export({
+			user,
 			requirements: [],
 			workflows: [workflowEntry('wf-parent', 'Parent')],
 		});
 
 		expect(result.requirements).toEqual([]);
+		expect(workflowFinder.findWorkflowsByIdsForUser).not.toHaveBeenCalled();
 	});
 });

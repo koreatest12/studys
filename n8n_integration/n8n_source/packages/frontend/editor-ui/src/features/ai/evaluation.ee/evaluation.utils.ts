@@ -7,7 +7,7 @@ import {
 } from '@n8n/api-types';
 import type { BaseTextKey } from '@n8n/i18n';
 import type { JsonValue } from 'n8n-workflow';
-import type { IconName } from '@n8n/design-system/components/N8nIcon/icons';
+import type { IconName } from '@n8n/design-system';
 import type { IExecutionResponse } from '@/features/execution/executions/executions.types';
 import type { TestCaseExecutionRecord, TestRunRecord } from './evaluation.api';
 import type { TestTableColumn } from './components/shared/TestTableBase.vue';
@@ -153,9 +153,18 @@ export function countSettledRuns(runs: Array<{ status: EvalCollectionRunStatus }
 // operational counts (tokens, latency) normalize to `null` and are dropped, since
 // the bars clamp to max=1 and an absolute count would render a maxed-out bar.
 export function buildScoreShapedMetricGroups(
-	runs: Array<{ metrics: Record<string, number> | null }>,
-	scaleByMetric?: Record<string, MetricScale>,
+	runs: Array<{
+		metrics: Record<string, number> | null;
+		metricScales?: Record<string, MetricScale>;
+	}>,
+	defaultScales?: Record<string, MetricScale>,
 ): Array<{ key: string; values: Array<number | null> }> {
+	// Each run normalizes on its own snapshot scales (falling back to the
+	// collection-wide default) so a metric whose scale changed between runs isn't
+	// misnormalized against a single shared scale.
+	const scaleFor = (run: { metricScales?: Record<string, MetricScale> }, key: string) =>
+		run.metricScales?.[key] ?? defaultScales?.[key];
+
 	const orderedKeys: string[] = [];
 	const seen = new Set<string>();
 	for (const run of runs) {
@@ -171,9 +180,7 @@ export function buildScoreShapedMetricGroups(
 			runs.some((run) => run.metrics?.[key] !== undefined) &&
 			runs.every((run) => {
 				const value = run.metrics?.[key];
-				return (
-					value === undefined || normalizeMetricScore(key, value, scaleByMetric?.[key]) !== null
-				);
+				return value === undefined || normalizeMetricScore(key, value, scaleFor(run, key)) !== null;
 			}),
 	);
 
@@ -182,7 +189,7 @@ export function buildScoreShapedMetricGroups(
 		values: runs.map((run) => {
 			const value = run.metrics?.[key];
 			return typeof value === 'number'
-				? normalizeMetricScore(key, value, scaleByMetric?.[key])
+				? normalizeMetricScore(key, value, scaleFor(run, key))
 				: null;
 		}),
 	}));
@@ -238,6 +245,28 @@ export function getMetricScale(category: MetricCategory | undefined): MetricDisp
 	return category === 'aiBased' ? 'oneToFive' : 'normalized';
 }
 
+// Display scale for a metric: prefer the authoritative `MetricScale` resolved
+// from the run's config (oneToFive vs. the 0–1 `normalized` bucket that covers
+// unit + boolean); fall back to the coarse category heuristic when absent.
+function resolveDisplayScale(options: {
+	category?: MetricCategory;
+	scale?: MetricScale;
+}): MetricDisplayScale {
+	if (options.scale) return options.scale === 'oneToFive' ? 'oneToFive' : 'normalized';
+	return getMetricScale(options.category);
+}
+
+export function isUnscaledCustomMetric(
+	options: { key?: string; category?: MetricCategory; scale?: MetricScale } = {},
+): boolean {
+	if (options.scale) return false;
+	return (options.category ?? getMetricCategory(options.key)) === 'custom';
+}
+
+function formatMetricNumber(value: number): string {
+	return value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
 // A check as rendered on the wizard results page. `isAiJudged` checks show an
 // average score; the rest are pass/fail. Icon fields mirror the check tile.
 export type ResultCheck = {
@@ -255,14 +284,24 @@ export function casePassed(value: number | undefined): boolean {
 	return normalizeMetricValue(value) === 1;
 }
 
-// aiBased: 1-5 → value/5*100 (so 5 → 100%). Otherwise: |v|≤1 is a 0-1 score
-// scaled to percent; out-of-range values are assumed to be percentages already.
+// With a resolved `scale` (from the run's config snapshot) the score goes
+// through the shared `normalizeMetricScore`, so the runs page matches the
+// compare view — a 1–5 judge metric renders 100%, not its raw 5. Without a
+// scale the legacy category heuristic applies: aiBased 1–5 → value/5*100;
+// otherwise |v|≤1 is a 0-1 score scaled to percent and out-of-range values are
+// assumed to be percentages already.
 export function formatMetricPercent(
 	value: number | undefined,
-	options: { category?: MetricCategory } = {},
+	options: { key?: string; category?: MetricCategory; scale?: MetricScale } = {},
 ): string {
 	const num = normalizeMetricValue(value);
 	if (num === undefined) return '–';
+	// With a resolved scale, normalize exactly (unit vs. boolean matters here) —
+	// `resolveDisplayScale`'s coarse oneToFive/normalized bucket isn't enough.
+	if (options.scale) {
+		const score = normalizeMetricScore(options.key ?? '', num, options.scale);
+		return score === null ? '–' : `${Math.round(score * 100)}%`;
+	}
 	const scaled =
 		getMetricScale(options.category) === 'oneToFive'
 			? (num / 5) * 100
@@ -270,6 +309,17 @@ export function formatMetricPercent(
 				? num * 100
 				: num;
 	return `${Math.round(scaled)}%`;
+}
+
+/** Format a metric for display, preserving score formatting where the scale is known. */
+export function formatMetricValue(
+	value: number | undefined,
+	options: { key?: string; category?: MetricCategory; scale?: MetricScale } = {},
+): string {
+	const num = normalizeMetricValue(value);
+	if (num === undefined) return '–';
+	if (isUnscaledCustomMetric(options)) return formatMetricNumber(num);
+	return formatMetricPercent(num, options);
 }
 
 // snake_case / camelCase → Title Case (e.g. count_accuracy → "Count Accuracy").
@@ -318,9 +368,9 @@ function formatScoreNumerator(value: number): string {
 // `x/5` form for AI-based per-case rows (only — 0-1 metrics duplicate the %).
 export function formatMetricRawScore(
 	value: number | undefined,
-	options: { category?: MetricCategory } = {},
+	options: { category?: MetricCategory; scale?: MetricScale } = {},
 ): string {
-	if (getMetricScale(options.category) !== 'oneToFive') return '';
+	if (resolveDisplayScale(options) !== 'oneToFive') return '';
 	const num = normalizeMetricValue(value);
 	if (num === undefined) return '';
 	return `${formatScoreNumerator(num)}/5`;
@@ -342,11 +392,11 @@ export function formatMetricAverage(
 // Run-level totals: "13/15" (AI-based: sum / 5×count) or "1.11/6" (0-1: sum / count).
 export function formatMetricRawScoreSum(
 	values: Array<number | undefined>,
-	options: { category?: MetricCategory } = {},
+	options: { category?: MetricCategory; scale?: MetricScale } = {},
 ): string {
 	const usable = values.map(normalizeMetricValue).filter((v): v is number => v !== undefined);
 	if (usable.length === 0) return '';
-	const isOneToFive = getMetricScale(options.category) === 'oneToFive';
+	const isOneToFive = resolveDisplayScale(options) === 'oneToFive';
 	const perCaseMax = isOneToFive ? 5 : 1;
 	const numeratorSum = usable.reduce((sum, value) => sum + value, 0);
 	const denominator = perCaseMax * usable.length;
@@ -359,11 +409,11 @@ export function formatMetricRawScoreSum(
 // Signed delta in percentage points (e.g. "+4%" / "-28%"). 1-5: +1 → +20%; 0-1: +0.04 → +4%.
 export function formatDeltaPercent(
 	delta: number | undefined,
-	options: { category?: MetricCategory } = {},
+	options: { category?: MetricCategory; scale?: MetricScale } = {},
 ): string {
 	if (delta === undefined || Number.isNaN(delta)) return '';
 	const scaled =
-		getMetricScale(options.category) === 'oneToFive'
+		resolveDisplayScale(options) === 'oneToFive'
 			? (delta / 5) * 100
 			: Math.abs(delta) <= 1
 				? delta * 100
@@ -371,6 +421,18 @@ export function formatDeltaPercent(
 	const rounded = Math.round(scaled);
 	const sign = rounded > 0 ? '+' : '';
 	return `${sign}${rounded}%`;
+}
+
+export function formatMetricDelta(
+	delta: number | undefined,
+	options: { key?: string; category?: MetricCategory; scale?: MetricScale } = {},
+): string {
+	if (delta === undefined || Number.isNaN(delta)) return '';
+	if (isUnscaledCustomMetric(options)) {
+		const sign = delta > 0 ? '+' : delta < 0 ? '-' : '';
+		return `${sign}${formatMetricNumber(Math.abs(delta))}`;
+	}
+	return formatDeltaPercent(delta, options);
 }
 
 // Compact duration: <1s → "243ms", <60s → "8s"/"1.2s", ≥60s → "1m 30s"/"2m".

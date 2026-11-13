@@ -1,10 +1,36 @@
+import type { McpToolDescriptor } from '@n8n/ai-utilities/agent-config';
+
+export type { McpToolAnnotations, McpToolDescriptor } from '@n8n/ai-utilities/agent-config';
+
 export type McpVerifyResult =
 	| { ok: true; servers: Array<{ name: string; tools: number }> }
 	| { ok: false; errors: Array<{ server: string; error: string }> };
 
 export interface McpToolCallSettledEvent {
+	/** Original, unprefixed name reported by the MCP server. */
 	toolName: string;
+	/** Exact normalized name exposed to the model. */
+	modelToolName?: string;
 	success: boolean;
+}
+
+export type McpToolFilter = { mode: 'allow' | 'exclude'; tools: string[] };
+export type McpRequireApproval = string[] | boolean;
+
+export interface McpToolConfiguration {
+	toolFilter?: McpToolFilter;
+	requireApproval?: McpRequireApproval;
+}
+
+/**
+ * Emitted when an MCP server connection (transport start or MCP initialize)
+ * fails. The server's tools are skipped for the run, but the run continues with
+ * the remaining servers' tools.
+ */
+export interface McpConnectionFailedEvent {
+	/** Display name of the server that failed to connect. */
+	server: string;
+	error: string;
 }
 
 export interface McpServerConfig {
@@ -14,7 +40,7 @@ export interface McpServerConfig {
 	// URL-based transports (exactly one of url or command must be provided)
 	/** Server endpoint URL for SSE or Streamable HTTP transport. */
 	url?: string;
-	/** Transport type for URL-based servers. Defaults to 'sse'. */
+	/** Transport type for URL-based servers. Defaults to Streamable HTTP. Legacy SSE is also supported. */
 	transport?: 'sse' | 'streamableHttp';
 
 	// Stdio transport
@@ -28,6 +54,9 @@ export interface McpServerConfig {
 
 	/** Optional callback that's invoked after an MCP tool call settles. */
 	onToolCallSettled?: (event: McpToolCallSettledEvent) => void | Promise<void>;
+
+	/** Optional callback invoked when this server fails to connect or initialize. */
+	onConnectionFailed?: (event: McpConnectionFailedEvent) => void | Promise<void>;
 
 	/**
 	 * Maximum time in milliseconds to wait for this server connection (transport
@@ -44,13 +73,27 @@ export interface McpServerConfig {
 	 *   require approval; all other tools from the server run without interruption.
 	 * - `false` / omitted — no approval requirement.
 	 */
-	requireApproval?: string[] | boolean;
+	requireApproval?: McpRequireApproval;
+
+	/**
+	 * Configure filtering and approval after the server returns its tool list.
+	 * This callback runs once for each tool listing before tools are resolved.
+	 */
+	configureTools?: (tools: McpToolDescriptor[]) => McpToolConfiguration;
+
+	/**
+	 * Set when `configureTools` never returns `requireApproval`. The agent then
+	 * does not need checkpoint storage for this server just because `configureTools`
+	 * exists. A static `requireApproval` still counts.
+	 */
+	configureToolsNonInterrupting?: boolean;
 
 	/**
 	 * Custom fetch implementation used by URL-based transports (SSE,
 	 * StreamableHTTP).
-	 * Ignored for stdio transport. When omitted, the SDK transports fall back
-	 * to the global `fetch`.
+	 * Ignored for stdio transport. When omitted, a redirect-aware wrapper uses
+	 * the global `fetch`.
+	 * When auth headers are configured, a wrapper scopes them to the starting origin.
 	 */
 	fetch?: typeof fetch;
 
@@ -69,5 +112,5 @@ export interface McpServerConfig {
 	 * anything. This matches the JSON-config semantics ("no filter applied"
 	 * is expressed by omitting the field).
 	 */
-	toolFilter?: { mode: 'allow' | 'exclude'; tools: string[] };
+	toolFilter?: McpToolFilter;
 }

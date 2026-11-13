@@ -1,3 +1,4 @@
+import type { AiGatewayConfigDto } from '@n8n/api-types';
 import type { User } from '@n8n/db';
 import type {
 	INode,
@@ -5,14 +6,16 @@ import type {
 	INodeCredentialDescription,
 	IWorkflowBase,
 } from 'n8n-workflow';
+import { UnrecognizedNodeTypeError } from 'n8n-core';
 import { NodeHelpers } from 'n8n-workflow';
 
 import type { CredentialsService } from '@/credentials/credentials.service';
-import type { NodeTypes } from '@/node-types';
+import type { NodeTypesProxy } from '@n8n/backend-services';
 import type { Telemetry } from '@/telemetry';
 
 import {
 	autoPopulateNodeCredentials,
+	reconcileAiGatewayMarkers,
 	trackAutoassignOutcomes,
 	type SlotOutcome,
 } from '../tools/workflow-builder/credentials-auto-assign';
@@ -74,10 +77,13 @@ function createMocks({
 	const nodeTypes = {
 		getByNameAndVersion: vi.fn().mockImplementation((type: string) => {
 			const desc = nodeTypeDescriptions.get(type);
-			if (!desc) throw new Error(`Unknown node type: ${type}`);
+			if (!desc) {
+				const separator = type.lastIndexOf('.');
+				throw new UnrecognizedNodeTypeError(type.slice(0, separator), type.slice(separator + 1));
+			}
 			return { description: desc };
 		}),
-	} as unknown as NodeTypes;
+	} as unknown as NodeTypesProxy;
 
 	return { credentialsService, nodeTypes };
 }
@@ -397,12 +403,12 @@ describe('autoPopulateNodeCredentials', () => {
 			);
 
 			expect(node.credentials).toEqual({
-				slackApi: { id: null, name: 'n8n credits', __aiGatewayManaged: true },
+				slackApi: { id: null, name: 'Gateway credits', __aiGatewayManaged: true },
 			});
 			expect(result.assignments).toEqual([
 				{
 					nodeName: 'Test Node',
-					credentialName: 'n8n credits',
+					credentialName: 'Gateway credits',
 					credentialType: 'slackApi',
 					source: 'aiGateway',
 				},
@@ -416,6 +422,209 @@ describe('autoPopulateNodeCredentials', () => {
 					aiGatewayAvailable: true,
 				},
 			]);
+		});
+
+		test('switches auth to a supported sibling type when the default auth type is unsupported', async () => {
+			// Node defaults to an unsupported auth (oAuth2 → serviceOAuth2Api) while a
+			// sibling (apiKey → serviceApiKey) is n8n-credits-eligible.
+			const desc = {
+				...makeNodeTypeDescription({ name: 'n8n-nodes-base.service' }),
+				credentials: [
+					{ name: 'serviceOAuth2Api', displayOptions: { show: { authentication: ['oAuth2'] } } },
+					{ name: 'serviceApiKey', displayOptions: { show: { authentication: ['apiKey'] } } },
+				],
+				properties: [
+					{
+						displayName: 'Authentication',
+						name: 'authentication',
+						type: 'options',
+						options: [
+							{ name: 'OAuth2', value: 'oAuth2' },
+							{ name: 'API Key', value: 'apiKey' },
+						],
+						default: 'oAuth2',
+					},
+				],
+			} as unknown as INodeTypeDescription;
+			const node = makeNode({ type: 'n8n-nodes-base.service', parameters: {} });
+			const workflow = makeWorkflow([node]);
+			const { credentialsService, nodeTypes } = createMocks({
+				usableCredentials: [],
+				nodeTypeDescriptions: new Map([['n8n-nodes-base.service', desc]]),
+			});
+			const aiGatewayService = {
+				isAvailable: vi.fn().mockResolvedValue({
+					available: true,
+					config: {
+						nodes: ['n8n-nodes-base.service'],
+						credentialTypes: ['serviceApiKey'],
+						providerConfig: {
+							serviceApiKey: {
+								gatewayPath: '/v1/gateway/service',
+								urlField: 'url',
+								apiKeyField: 'apiKey',
+							},
+						},
+					},
+				}),
+			} as unknown as import('@/services/ai-gateway.service').AiGatewayService;
+
+			const result = await autoPopulateNodeCredentials(
+				workflow,
+				user,
+				nodeTypes,
+				credentialsService,
+				projectId,
+				aiGatewayService,
+			);
+
+			expect(node.credentials).toEqual({
+				serviceApiKey: { id: null, name: 'Gateway credits', __aiGatewayManaged: true },
+			});
+			expect(node.parameters.authentication).toBe('apiKey');
+			expect(result.assignments).toEqual([
+				{
+					nodeName: 'Test Node',
+					credentialName: 'Gateway credits',
+					credentialType: 'serviceApiKey',
+					source: 'aiGateway',
+				},
+			]);
+		});
+
+		test('switches auth when the controlling param is absent (relying on the type default)', async () => {
+			// Mirrors a real inserted node: `authentication` is NOT stored (defaults are
+			// not persisted), and an unrelated `operation` param IS present.
+			const desc = {
+				...makeNodeTypeDescription({ name: 'n8n-nodes-base.service' }),
+				credentials: [
+					{ name: 'serviceOAuth2Api', displayOptions: { show: { authentication: ['oAuth2'] } } },
+					{ name: 'serviceApiKey', displayOptions: { show: { authentication: ['apiKey'] } } },
+				],
+				properties: [
+					{
+						displayName: 'Operation',
+						name: 'operation',
+						type: 'options',
+						options: [{ name: 'Split PDF', value: 'Split PDF' }],
+						default: 'Split PDF',
+					},
+					{
+						displayName: 'Authentication',
+						name: 'authentication',
+						type: 'options',
+						options: [
+							{ name: 'OAuth2', value: 'oAuth2' },
+							{ name: 'API Key', value: 'apiKey' },
+						],
+						default: 'oAuth2',
+					},
+				],
+			} as unknown as INodeTypeDescription;
+			const node = makeNode({
+				type: 'n8n-nodes-base.service',
+				parameters: { operation: 'Split PDF' },
+			});
+			const workflow = makeWorkflow([node]);
+			const { credentialsService, nodeTypes } = createMocks({
+				usableCredentials: [],
+				nodeTypeDescriptions: new Map([['n8n-nodes-base.service', desc]]),
+			});
+			const aiGatewayService = {
+				isAvailable: vi.fn().mockResolvedValue({
+					available: true,
+					config: {
+						nodes: ['n8n-nodes-base.service'],
+						credentialTypes: ['serviceApiKey'],
+						providerConfig: {
+							serviceApiKey: {
+								gatewayPath: '/v1/gateway/service',
+								urlField: 'url',
+								apiKeyField: 'apiKey',
+							},
+						},
+					},
+				}),
+			} as unknown as import('@/services/ai-gateway.service').AiGatewayService;
+
+			await autoPopulateNodeCredentials(
+				workflow,
+				user,
+				nodeTypes,
+				credentialsService,
+				projectId,
+				aiGatewayService,
+			);
+
+			expect(node.credentials).toEqual({
+				serviceApiKey: { id: null, name: 'Gateway credits', __aiGatewayManaged: true },
+			});
+			expect(node.parameters.authentication).toBe('apiKey');
+		});
+
+		test('does not rewrite a parameter that already activates the assigned credential type', async () => {
+			// The credential is shown for several auth values; the node already uses
+			// the second one, so assigning n8n credits must not flip it to the first.
+			const desc = {
+				...makeNodeTypeDescription({ name: 'n8n-nodes-base.service' }),
+				credentials: [
+					{
+						name: 'serviceApiKey',
+						displayOptions: { show: { authentication: ['apiKey', 'apiKeyLegacy'] } },
+					},
+				],
+				properties: [
+					{
+						displayName: 'Authentication',
+						name: 'authentication',
+						type: 'options',
+						options: [
+							{ name: 'API Key', value: 'apiKey' },
+							{ name: 'API Key (legacy)', value: 'apiKeyLegacy' },
+						],
+						default: 'apiKey',
+					},
+				],
+			} as unknown as INodeTypeDescription;
+			const node = makeNode({
+				type: 'n8n-nodes-base.service',
+				parameters: { authentication: 'apiKeyLegacy' },
+			});
+			const workflow = makeWorkflow([node]);
+			const { credentialsService, nodeTypes } = createMocks({
+				usableCredentials: [],
+				nodeTypeDescriptions: new Map([['n8n-nodes-base.service', desc]]),
+			});
+			const aiGatewayService = {
+				isAvailable: vi.fn().mockResolvedValue({
+					available: true,
+					config: {
+						nodes: ['n8n-nodes-base.service'],
+						credentialTypes: ['serviceApiKey'],
+						providerConfig: {
+							serviceApiKey: {
+								gatewayPath: '/v1/gateway/service',
+								urlField: 'url',
+								apiKeyField: 'apiKey',
+							},
+						},
+					},
+				}),
+			} as unknown as import('@/services/ai-gateway.service').AiGatewayService;
+
+			await autoPopulateNodeCredentials(
+				workflow,
+				user,
+				nodeTypes,
+				credentialsService,
+				projectId,
+				aiGatewayService,
+			);
+
+			expect(node.credentials).toEqual({
+				serviceApiKey: { id: null, name: 'Gateway credits', __aiGatewayManaged: true },
+			});
+			expect(node.parameters.authentication).toBe('apiKeyLegacy');
 		});
 
 		test('prefers user credential when both exist', async () => {
@@ -604,7 +813,7 @@ describe('autoPopulateNodeCredentials', () => {
 				// Canonicalized to the sentinel and kept — the explicit n8n Connect request
 				// wins over the owned credential, and no assignment is recorded for it.
 				expect(node.credentials).toEqual({
-					slackApi: { id: null, name: 'n8n credits', __aiGatewayManaged: true },
+					slackApi: { id: null, name: 'Gateway credits', __aiGatewayManaged: true },
 				});
 				expect(result.assignments).toEqual([]);
 				expect(result.outcomes).toEqual([]);
@@ -718,6 +927,73 @@ describe('autoPopulateNodeCredentials', () => {
 				});
 			});
 		});
+	});
+});
+
+describe('node type lookup failures', () => {
+	const gatewayConfig = {
+		nodes: ['n8n-nodes-base.slack'],
+		credentialTypes: ['slackApi'],
+		providerConfig: {},
+	} as unknown as AiGatewayConfigDto;
+	const marker = { id: null, name: 'Gateway credits', __aiGatewayManaged: true };
+
+	function nodeTypesThatThrow(error: Error) {
+		return {
+			getByNameAndVersion: vi.fn().mockImplementation(() => {
+				throw error;
+			}),
+		} as unknown as NodeTypesProxy;
+	}
+
+	test('autoPopulateNodeCredentials skips a node whose type is unknown', async () => {
+		const node = makeNode();
+		const { credentialsService } = createMocks();
+		const nodeTypes = nodeTypesThatThrow(new UnrecognizedNodeTypeError('n8n-nodes-base', 'slack'));
+
+		const result = await autoPopulateNodeCredentials(
+			makeWorkflow([node]),
+			user,
+			nodeTypes,
+			credentialsService,
+			projectId,
+		);
+
+		expect(result.assignments).toEqual([]);
+	});
+
+	test('autoPopulateNodeCredentials rethrows an unexpected lookup error', async () => {
+		const { credentialsService } = createMocks();
+		const nodeTypes = nodeTypesThatThrow(new Error('loader crashed'));
+
+		await expect(
+			autoPopulateNodeCredentials(
+				makeWorkflow([makeNode()]),
+				user,
+				nodeTypes,
+				credentialsService,
+				projectId,
+			),
+		).rejects.toThrow('loader crashed');
+	});
+
+	test('reconcileAiGatewayMarkers drops a marker when the node type is unknown', () => {
+		const node = makeNode({ credentials: { slackApi: { ...marker } } });
+		const nodeTypes = nodeTypesThatThrow(new UnrecognizedNodeTypeError('n8n-nodes-base', 'slack'));
+
+		reconcileAiGatewayMarkers([node], nodeTypes, gatewayConfig);
+
+		expect(node.credentials).toEqual({});
+	});
+
+	test('reconcileAiGatewayMarkers keeps markers and rethrows an unexpected lookup error', () => {
+		const node = makeNode({ credentials: { slackApi: { ...marker } } });
+		const nodeTypes = nodeTypesThatThrow(new Error('loader crashed'));
+
+		expect(() => reconcileAiGatewayMarkers([node], nodeTypes, gatewayConfig)).toThrow(
+			'loader crashed',
+		);
+		expect(node.credentials).toEqual({ slackApi: marker });
 	});
 });
 

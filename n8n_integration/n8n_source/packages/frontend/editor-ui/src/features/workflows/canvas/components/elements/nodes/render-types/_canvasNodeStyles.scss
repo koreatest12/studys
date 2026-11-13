@@ -28,16 +28,17 @@
 }
 
 @mixin status-success {
-	--canvas-node--border-width: 2px;
+	--canvas-node--border-width: var(--spacing--5xs);
 	--canvas-node--border-color: var(--color-canvas-node-success-border-color, var(--color--success));
 }
 
 @mixin status-error {
+	--canvas-node--border-width: var(--spacing--5xs);
 	--canvas-node--border-color: var(--canvas-node--border-color--error, var(--color--danger));
 }
 
 @mixin status-warning {
-	--canvas-node--border-width: 2px;
+	--canvas-node--border-width: var(--spacing--5xs);
 	--canvas-node--border-color: var(--color--warning);
 }
 
@@ -53,10 +54,10 @@
 	--canvas-node--border-color: transparent;
 }
 
-@mixin status-animated-after {
+@mixin status-animated-after($inset: 3px) {
 	content: '';
 	position: absolute;
-	inset: -3px;
+	inset: -$inset;
 	border-radius: 10px;
 	z-index: -1;
 	background: conic-gradient(

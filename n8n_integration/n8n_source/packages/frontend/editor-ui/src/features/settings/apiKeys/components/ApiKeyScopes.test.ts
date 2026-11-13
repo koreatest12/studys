@@ -1,4 +1,5 @@
 import userEvent from '@testing-library/user-event';
+import { waitFor } from '@testing-library/vue';
 import type { ApiKeyScope } from '@n8n/permissions';
 
 import { createComponentRenderer } from '@/__tests__/render';
@@ -191,7 +192,7 @@ describe('ApiKeyScopes', () => {
 
 	it('keeps Custom selected when the user explicitly picks it even if selection matches Read only', async () => {
 		// Start in "All" so clicking Custom is a real transition that fires
-		// ElRadioGroup's @change handler (and not a re-click no-op).
+		// N8nRadioGroup's update handler (and not a re-click no-op).
 		const { getByTestId, rerender } = renderComponent({
 			props: { modelValue: availableScopes, availableScopes },
 		});
@@ -225,8 +226,10 @@ describe('ApiKeyScopes', () => {
 
 		expect(getByTestId('scopes-mode-all')).toBeChecked();
 		expect(getByTestId('scopes-mode-custom')).not.toBeChecked();
-		// The programmatic mode flip must also collapse the tree, not just move the radio.
-		expect(queryByTestId('scopes-search')).not.toBeInTheDocument();
+		// The programmatic mode flip must also collapse the tree, not just move the
+		// radio. The collapse cascades through two watchers plus the collapsible's
+		// unmount, which settles a couple of ticks after the rerender.
+		await waitFor(() => expect(queryByTestId('scopes-search')).not.toBeInTheDocument());
 	});
 
 	it('toggling a group while searching only affects scopes in that group, not the visible subset', async () => {

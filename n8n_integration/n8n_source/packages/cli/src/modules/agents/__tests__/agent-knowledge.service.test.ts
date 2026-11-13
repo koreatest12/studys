@@ -1,48 +1,31 @@
-import type { Mocked } from 'vitest';
-import { mock } from 'vitest-mock-extended';
-import { access, mkdtemp, writeFile } from 'node:fs/promises';
+import type { Logger } from '@n8n/backend-common';
+import type { OperationContext, Transaction } from '@n8n/db';
+import { NotFoundError } from '@n8n/errors';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Readable } from 'node:stream';
+import type { Mocked } from 'vitest';
+import { mock } from 'vitest-mock-extended';
 
-import { MAX_AGENT_KNOWLEDGE_BASE_SIZE_BYTES } from '@n8n/api-types';
-import type { Logger } from '@n8n/backend-common';
-import type { BinaryDataConfig, BinaryDataService } from 'n8n-core';
+import { makeKnowledgeAvailabilityService } from '@/modules/knowledge/__tests__/test-utils/knowledge-availability.service';
+import type {
+	KnowledgeFileService,
+	UploadedKnowledgeFile,
+} from '@/modules/knowledge/files/knowledge-file.service';
+import type { KnowledgeAvailabilityService } from '@/modules/knowledge/knowledge-availability.service';
+import type { KnowledgeConsumerScope } from '@/modules/knowledge/knowledge-consumer-scope';
+import type { KnowledgeRetrievalService } from '@/modules/knowledge/retrieval/knowledge-retrieval.service';
 
 import { AgentKnowledgeService } from '../agent-knowledge.service';
-import type { AgentKnowledgeSandboxService } from '../agent-knowledge-sandbox.service';
-import type { AgentFile } from '../entities/agent-file.entity';
-import type { AgentFileRepository } from '../repositories/agent-file.repository';
+import type { AgentProjectDeletionRepository } from '../repositories/agent-project-deletion.repository';
 import type { AgentRepository } from '../repositories/agent.repository';
 
 vi.unmock('node:fs');
 vi.unmock('node:fs/promises');
 
-const loadMock = vi.fn();
-vi.mock('@n8n/ai-utilities', () => ({
-	N8nPdfLoader: vi.fn().mockImplementation(function () {
-		return {
-			load: loadMock,
-		};
-	}),
-}));
-
-/**
- * Real `BinaryDataService` managers fully consume the stream before
- * resolving/rejecting; mock implementations must too, or an unconsumed
- * `createReadStream` lazily opens after the test's temp-file cleanup runs
- * and throws an unhandled ENOENT.
- */
-async function drainIfStream(content: unknown): Promise<void> {
-	if (content instanceof Readable) {
-		for await (const _chunk of content) {
-			// no-op
-		}
-	}
-}
-
 const agentId = 'agent-1';
 const projectId = 'project-1';
+const scope: KnowledgeConsumerScope = { kind: 'agent', projectId, agentId };
 
 function makeMulterFile(overrides: Partial<Express.Multer.File> = {}): Express.Multer.File {
 	return {
@@ -60,487 +43,217 @@ function makeMulterFile(overrides: Partial<Express.Multer.File> = {}): Express.M
 	};
 }
 
-function makeAgentFile(overrides: Partial<AgentFile> = {}): AgentFile {
-	const createdAt = overrides.createdAt ?? new Date('2026-06-01T10:00:00.000Z');
-	return {
+const uploadedFile: UploadedKnowledgeFile = {
+	file: {
 		id: 'file-1',
 		agentId,
-		binaryDataId: 'filesystem-v2:agents/agent-1/knowledge-files/file-1/binary_data/uuid',
-		fileName: 'first.txt',
+		fileName: 'document.txt',
 		mimeType: 'text/plain',
-		fileSizeBytes: 4,
-		createdAt,
-		updatedAt: createdAt,
-		agent: undefined as never,
-		...overrides,
-	} as unknown as AgentFile;
-}
-
-class InMemoryAgentFileRepository {
-	private readonly files = new Map<string, AgentFile>();
-
-	create(input: Partial<AgentFile>): AgentFile {
-		const createdAt = new Date();
-		return {
-			id: input.id ?? 'generated-id',
-			agentId: input.agentId ?? agentId,
-			binaryDataId: input.binaryDataId ?? '',
-			fileName: input.fileName ?? '',
-			mimeType: input.mimeType ?? '',
-			fileSizeBytes: input.fileSizeBytes ?? 0,
-			createdAt,
-			updatedAt: createdAt,
-			agent: undefined as never,
-		} as unknown as AgentFile;
-	}
-
-	async save(file: AgentFile): Promise<AgentFile> {
-		this.files.set(file.id, { ...file });
-		return file;
-	}
-
-	async findByAgentId(agentIdToFind: string): Promise<AgentFile[]> {
-		return [...this.files.values()]
-			.filter((file) => file.agentId === agentIdToFind)
-			.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
-	}
-
-	async hasFilesForAgent(agentIdToFind: string): Promise<boolean> {
-		return [...this.files.values()].some((file) => file.agentId === agentIdToFind);
-	}
-
-	async findByIdAndAgentId(fileId: string, agentIdToFind: string): Promise<AgentFile | null> {
-		const file = this.files.get(fileId);
-		if (!file || file.agentId !== agentIdToFind) {
-			return null;
-		}
-		return file;
-	}
-
-	async delete(criteria: { id?: string; agentId?: string }): Promise<void> {
-		for (const [id, file] of this.files.entries()) {
-			if (criteria.id && file.id !== criteria.id) continue;
-			if (criteria.agentId && file.agentId !== criteria.agentId) continue;
-			this.files.delete(id);
-		}
-	}
-
-	all(): AgentFile[] {
-		return [...this.files.values()];
-	}
-}
+		fileSizeBytes: 5,
+		createdAt: '2026-06-01T10:00:00.000Z',
+	},
+	contentHash: 'hash',
+};
 
 describe('AgentKnowledgeService', () => {
 	let agentRepository: Mocked<AgentRepository>;
-	let agentFileRepository: InMemoryAgentFileRepository;
-	let agentKnowledgeSandboxService: Mocked<AgentKnowledgeSandboxService>;
-	let binaryDataService: Mocked<BinaryDataService>;
-	let binaryDataConfig: BinaryDataConfig;
+	let knowledgeFileService: Mocked<KnowledgeFileService>;
+	let knowledgeRetrievalService: Mocked<KnowledgeRetrievalService>;
+	let projectDeletion: Mocked<AgentProjectDeletionRepository>;
 	let logger: Mocked<Logger>;
 	let service: AgentKnowledgeService;
-	let storeSequence: number;
+
+	function makeService(
+		knowledgeAvailabilityService: KnowledgeAvailabilityService = makeKnowledgeAvailabilityService(),
+	) {
+		return new AgentKnowledgeService(
+			agentRepository,
+			knowledgeFileService,
+			knowledgeRetrievalService,
+			knowledgeAvailabilityService,
+			projectDeletion,
+			logger,
+		);
+	}
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		storeSequence = 0;
 		agentRepository = mock<AgentRepository>();
-		agentFileRepository = new InMemoryAgentFileRepository();
-		agentKnowledgeSandboxService = mock<AgentKnowledgeSandboxService>();
-		binaryDataService = mock<BinaryDataService>();
-		binaryDataService.store.mockImplementation(async (_location, content, binaryData) => {
-			storeSequence += 1;
-			await drainIfStream(content);
-			return { ...binaryData, id: `filesystem-v2:mock-${storeSequence}` };
-		});
-		binaryDataService.deleteManyByBinaryDataId.mockResolvedValue(undefined);
-		binaryDataConfig = { mode: 'filesystem' } as BinaryDataConfig;
+		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
+		knowledgeFileService = mock<KnowledgeFileService>();
+		knowledgeRetrievalService = mock<KnowledgeRetrievalService>();
+		projectDeletion = mock<AgentProjectDeletionRepository>();
+		projectDeletion.withWritableProject.mockImplementation(
+			async (_projectId, write, ctx = {}) => await write(ctx),
+		);
 		logger = mock<Logger>();
-		service = new AgentKnowledgeService(
-			agentRepository,
-			agentFileRepository as unknown as AgentFileRepository,
-			agentKnowledgeSandboxService,
-			binaryDataService,
-			binaryDataConfig,
-			logger,
-		);
-		loadMock.mockResolvedValue([{ pageContent: 'extracted pdf text' }]);
+		service = makeService();
 	});
 
-	it('stores text and PDF files via BinaryDataService, creates DB rows, and cleans temp files', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		const tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-upload-'));
-		const textFilePath = path.join(tempDirectory, 'notes.txt');
-		const pdfFilePath = path.join(tempDirectory, 'report.pdf');
-		await writeFile(textFilePath, 'hello world');
-		await writeFile(pdfFilePath, '%PDF-1.4');
-
-		const result = await service.uploadFiles(agentId, projectId, [
-			makeMulterFile({
-				originalname: 'notes.txt',
-				mimetype: 'text/plain',
-				path: textFilePath,
-				size: 11,
-				buffer: undefined,
-			}),
-			makeMulterFile({
-				originalname: 'report.pdf',
-				mimetype: 'application/pdf',
-				path: pdfFilePath,
-				size: 8,
-				buffer: undefined,
-			}),
-		]);
-
-		expect(result).toEqual([
-			expect.objectContaining({
-				agentId,
-				fileName: 'notes.txt',
-				mimeType: 'text/plain',
-				fileSizeBytes: 11,
-			}),
-			expect.objectContaining({
-				agentId,
-				fileName: 'report.pdf',
-				mimeType: 'application/pdf',
-				fileSizeBytes: 8,
-			}),
-		]);
-
-		expect(binaryDataService.store).toHaveBeenCalledTimes(2);
-		const [textCall, pdfCall] = binaryDataService.store.mock.calls;
-		expect(textCall[0]).toEqual(
-			expect.objectContaining({
-				type: 'custom',
-				pathSegments: ['agents', agentId, 'knowledge-files', expect.any(String)],
-				sourceType: 'agent_file',
-				sourceId: expect.any(String),
-			}),
+	it('uploads with the agent scope and reserves each row inside the project-deletion fence', async () => {
+		const ctx: OperationContext = { trx: mock<Transaction>() };
+		projectDeletion.withWritableProject.mockImplementation(
+			async (_projectId, write) => await write(ctx),
 		);
-		expect(textCall[1]).toBeInstanceOf(Readable);
-		expect(textCall[2]).toEqual(
-			expect.objectContaining({ mimeType: 'text/plain', fileName: 'notes.txt' }),
-		);
-		expect(pdfCall[1]).toEqual(Buffer.from('extracted pdf text', 'utf-8'));
-		expect(pdfCall[2]).toEqual(
-			expect.objectContaining({ mimeType: 'application/pdf', fileName: 'report.txt' }),
-		);
+		const files = [makeMulterFile()];
+		knowledgeFileService.uploadFiles.mockImplementation(async (_scope, _files, reserveRow) => {
+			await expect(reserveRow(async (writeCtx) => writeCtx)).resolves.toBe(ctx);
+			return [uploadedFile];
+		});
 
-		const [storedTextFile, storedPdfFile] = agentFileRepository.all();
-		expect(storedTextFile.binaryDataId).toBe('filesystem-v2:mock-1');
-		expect(storedPdfFile.binaryDataId).toBe('filesystem-v2:mock-2');
+		await expect(service.uploadFiles(agentId, projectId, files)).resolves.toEqual([uploadedFile]);
 
-		await expect(access(textFilePath)).rejects.toThrow();
-		await expect(access(pdfFilePath)).rejects.toThrow();
+		expect(knowledgeFileService.uploadFiles).toHaveBeenCalledWith(
+			scope,
+			files,
+			expect.any(Function),
+		);
+		expect(projectDeletion.withWritableProject).toHaveBeenCalledWith(
+			projectId,
+			expect.any(Function),
+		);
 	});
 
-	it('rejects uploads whose file name would escape the knowledge files directory', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
+	it('lists the files of the agent through the knowledge module', async () => {
+		knowledgeFileService.listFiles.mockResolvedValue([uploadedFile.file]);
 
-		await expect(
-			service.uploadFiles(agentId, projectId, [makeMulterFile({ originalname: '..' })]),
-		).rejects.toThrow('Invalid knowledge file name');
+		await expect(service.listFiles(agentId, projectId)).resolves.toEqual([uploadedFile.file]);
 
-		expect(agentFileRepository.all()).toEqual([]);
-		expect(binaryDataService.store).not.toHaveBeenCalled();
+		expect(knowledgeFileService.listFiles).toHaveBeenCalledWith(scope);
 	});
 
-	it('cleans up already-stored files when a later upload in the batch fails', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		const tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-upload-'));
-		const firstPath = path.join(tempDirectory, 'first.txt');
-		const secondPath = path.join(tempDirectory, 'second.txt');
-		await writeFile(firstPath, 'hello');
-		await writeFile(secondPath, 'world');
-		binaryDataService.store
-			.mockReset()
-			.mockImplementationOnce(async (_location, content, binaryData) => {
-				await drainIfStream(content);
-				return { ...binaryData, id: 'filesystem-v2:mock-1' };
-			})
-			.mockImplementationOnce(async (_location, content) => {
-				await drainIfStream(content);
-				throw new Error('store failed');
+	it('warms the knowledge sandbox of the agent through the knowledge module', async () => {
+		await expect(service.warmKnowledgeSandbox(agentId, projectId)).resolves.toBeUndefined();
+
+		expect(knowledgeRetrievalService.warmSandbox).toHaveBeenCalledWith(scope);
+	});
+
+	it.each([true, false])(
+		'deletes a file with the agent scope and the project-deletion fence, and returns %s from the knowledge module',
+		async (deleted) => {
+			const ctx: OperationContext = { trx: mock<Transaction>() };
+			projectDeletion.withWritableProject.mockImplementation(
+				async (_projectId, write) => await write(ctx),
+			);
+			knowledgeFileService.deleteFile.mockImplementation(async (_scope, _fileId, writeFence) => {
+				await expect(writeFence(async (writeCtx) => writeCtx)).resolves.toBe(ctx);
+				return deleted;
 			});
 
-		await expect(
-			service.uploadFiles(agentId, projectId, [
-				makeMulterFile({ originalname: 'first.txt', path: firstPath, size: 5, buffer: undefined }),
-				makeMulterFile({
-					originalname: 'second.txt',
-					path: secondPath,
-					size: 5,
-					buffer: undefined,
-				}),
-			]),
-		).rejects.toThrow('store failed');
+			await expect(service.deleteFile(agentId, projectId, 'file-1')).resolves.toBe(deleted);
 
-		expect(agentFileRepository.all()).toEqual([]);
-		expect(binaryDataService.deleteManyByBinaryDataId).toHaveBeenCalledWith([
-			'filesystem-v2:mock-1',
-		]);
-	});
+			expect(knowledgeFileService.deleteFile).toHaveBeenCalledWith(
+				scope,
+				'file-1',
+				expect.any(Function),
+			);
+			expect(projectDeletion.withWritableProject).toHaveBeenCalledWith(
+				projectId,
+				expect.any(Function),
+			);
+		},
+	);
 
-	it('rejects uploads when the binary data service has no persisted storage mode', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		const tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-upload-'));
-		const filePath = path.join(tempDirectory, 'notes.txt');
-		await writeFile(filePath, 'hello');
-		binaryDataService.store.mockImplementationOnce(async (_location, content, binaryData) => {
-			await drainIfStream(content);
-			return { ...binaryData, id: undefined };
-		});
-
-		await expect(
-			service.uploadFiles(agentId, projectId, [
-				makeMulterFile({ originalname: 'notes.txt', path: filePath, size: 5, buffer: undefined }),
-			]),
-		).rejects.toThrow('Agent knowledge base requires a persisted binary data storage mode');
-		expect(agentFileRepository.all()).toEqual([]);
-	});
-
-	it('rejects uploads up front when binary data mode is in-memory', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		binaryDataConfig = { mode: 'default' } as BinaryDataConfig;
-		service = new AgentKnowledgeService(
-			agentRepository,
-			agentFileRepository as unknown as AgentFileRepository,
-			agentKnowledgeSandboxService,
-			binaryDataService,
-			binaryDataConfig,
-			logger,
-		);
-
-		await expect(
-			service.uploadFiles(agentId, projectId, [makeMulterFile({ originalname: 'notes.txt' })]),
-		).rejects.toThrow('Agent knowledge base requires a persisted binary data storage mode');
-		expect(binaryDataService.store).not.toHaveBeenCalled();
-		expect(agentFileRepository.all()).toEqual([]);
-	});
-
-	it('allows uploads that bring the knowledge base exactly to the size limit', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		await agentFileRepository.save(
-			makeAgentFile({
-				id: 'existing-file',
-				fileName: 'existing.txt',
-				fileSizeBytes: MAX_AGENT_KNOWLEDGE_BASE_SIZE_BYTES - 1,
-			}),
-		);
-		const tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-upload-'));
-		const tempFilePath = path.join(tempDirectory, 'notes.txt');
-		await writeFile(tempFilePath, 'x');
-
-		await expect(
-			service.uploadFiles(agentId, projectId, [
-				makeMulterFile({
-					originalname: 'notes.txt',
-					path: tempFilePath,
-					size: 1,
-					buffer: undefined,
-				}),
-			]),
-		).resolves.toEqual([
-			expect.objectContaining({
-				agentId,
-				fileName: 'notes.txt',
-				fileSizeBytes: 1,
-			}),
-		]);
-		expect(agentFileRepository.all()).toHaveLength(2);
-		expect(binaryDataService.store).toHaveBeenCalledTimes(1);
-	});
-
-	it('rejects uploads that would exceed the knowledge base size limit', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		await agentFileRepository.save(
-			makeAgentFile({
-				id: 'existing-file',
-				fileName: 'existing.txt',
-				fileSizeBytes: MAX_AGENT_KNOWLEDGE_BASE_SIZE_BYTES,
-			}),
-		);
-
-		await expect(
-			service.uploadFiles(agentId, projectId, [
-				makeMulterFile({
-					originalname: 'notes.txt',
-					size: 1,
-				}),
-			]),
-		).rejects.toThrow('Knowledge base limit reached');
-		expect(agentFileRepository.all()).toHaveLength(1);
-		expect(binaryDataService.store).not.toHaveBeenCalled();
-	});
-
-	it('rejects uploads when existing knowledge files already exceed the size limit', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		await agentFileRepository.save(
-			makeAgentFile({
-				id: 'existing-file',
-				fileName: 'existing.txt',
-				fileSizeBytes: MAX_AGENT_KNOWLEDGE_BASE_SIZE_BYTES + 1,
-			}),
-		);
-
-		await expect(
-			service.uploadFiles(agentId, projectId, [
-				makeMulterFile({
-					originalname: 'notes.txt',
-					size: 1,
-				}),
-			]),
-		).rejects.toThrow('Knowledge base limit reached');
-		expect(agentFileRepository.all()).toHaveLength(1);
-		expect(binaryDataService.store).not.toHaveBeenCalled();
-	});
-
-	it('deletes the DB row and its binary data', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		await agentFileRepository.save(
-			makeAgentFile({ id: 'file-1', binaryDataId: 'filesystem-v2:file-1.txt' }),
-		);
-
-		await expect(service.deleteFile(agentId, projectId, 'file-1')).resolves.toBeUndefined();
-
-		expect(agentFileRepository.all()).toEqual([]);
-		expect(binaryDataService.deleteManyByBinaryDataId).toHaveBeenCalledWith([
-			'filesystem-v2:file-1.txt',
-		]);
-	});
-
-	it('logs binary data deletion failures without restoring the DB row', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		await agentFileRepository.save(
-			makeAgentFile({ id: 'file-1', binaryDataId: 'filesystem-v2:file-1.txt' }),
-		);
-		binaryDataService.deleteManyByBinaryDataId.mockRejectedValueOnce(new Error('delete failed'));
-
-		await expect(service.deleteFile(agentId, projectId, 'file-1')).resolves.toBeUndefined();
-
-		expect(agentFileRepository.all()).toEqual([]);
-		expect(logger.warn).toHaveBeenCalledWith('Failed to delete knowledge file binary data', {
-			agentId,
-			fileId: 'file-1',
-			error: 'delete failed',
-		});
-	});
-
-	it('deletes all agent files and their binary data', async () => {
-		await agentFileRepository.save(
-			makeAgentFile({ id: 'file-1', binaryDataId: 'filesystem-v2:file-1.txt' }),
-		);
-		await agentFileRepository.save(
-			makeAgentFile({
-				id: 'file-2',
-				binaryDataId: 'filesystem-v2:file-2.md',
-				fileName: 'guide.md',
-				mimeType: 'text/markdown',
-			}),
-		);
-
+	it('deletes all files of the agent through the knowledge module', async () => {
 		await expect(service.deleteAllFilesForAgent(projectId, agentId)).resolves.toBeUndefined();
 
-		expect(agentFileRepository.all()).toEqual([]);
-		expect(binaryDataService.deleteManyByBinaryDataId).toHaveBeenCalledWith([
-			'filesystem-v2:file-1.txt',
-			'filesystem-v2:file-2.md',
-		]);
-		expect(binaryDataService.deleteMany).not.toHaveBeenCalled();
+		expect(knowledgeFileService.deleteAll).toHaveBeenCalledWith(scope);
 	});
 
-	describe('published-only gating', () => {
-		it('rejects uploads for an unpublished agent', async () => {
-			agentRepository.findByIdAndProjectId.mockResolvedValue({
-				id: agentId,
-				projectId,
-				activeVersionId: null,
-			} as never);
+	it('destroys the knowledge sandbox on request', async () => {
+		await service.destroyKnowledgeSandbox(projectId, agentId);
 
-			await expect(service.uploadFiles(agentId, projectId, [makeMulterFile()])).rejects.toThrow(
-				'Knowledge base is only available for published agents. Publish the agent first.',
-			);
-			expect(agentFileRepository.all()).toEqual([]);
-			expect(binaryDataService.store).not.toHaveBeenCalled();
-		});
-
-		it('rejects warmup for an unpublished agent', async () => {
-			agentRepository.findByIdAndProjectId.mockResolvedValue({
-				id: agentId,
-				projectId,
-				activeVersionId: null,
-			} as never);
-
-			await expect(service.warmSandbox(agentId, projectId)).rejects.toThrow(
-				'Knowledge base is only available for published agents. Publish the agent first.',
-			);
-			expect(agentKnowledgeSandboxService.warmSandbox).not.toHaveBeenCalled();
-		});
-
-		it('allows warmup for a published agent', async () => {
-			agentRepository.findByIdAndProjectId.mockResolvedValue({
-				id: agentId,
-				projectId,
-				activeVersionId: 'version-1',
-			} as never);
-
-			await expect(service.warmSandbox(agentId, projectId)).resolves.toBeUndefined();
-			expect(agentKnowledgeSandboxService.warmSandbox).toHaveBeenCalledWith(projectId, agentId);
-		});
-
-		it('still lists and deletes files for an unpublished agent', async () => {
-			agentRepository.findByIdAndProjectId.mockResolvedValue({
-				id: agentId,
-				projectId,
-				activeVersionId: null,
-			} as never);
-			await agentFileRepository.save(makeAgentFile({ id: 'file-1' }));
-
-			await expect(service.listFiles(agentId, projectId)).resolves.toHaveLength(1);
-			await expect(service.deleteFile(agentId, projectId, 'file-1')).resolves.toBeUndefined();
-			expect(agentFileRepository.all()).toEqual([]);
-		});
+		expect(knowledgeRetrievalService.destroySandbox).toHaveBeenCalledWith(scope);
 	});
 
-	it('invalidates and pre-warms the mirror after a successful upload', async () => {
+	it.each([
+		['uploadFiles', async () => await service.uploadFiles(agentId, projectId, [makeMulterFile()])],
+		['listFiles', async () => await service.listFiles(agentId, projectId)],
+		['warmKnowledgeSandbox', async () => await service.warmKnowledgeSandbox(agentId, projectId)],
+		['deleteFile', async () => await service.deleteFile(agentId, projectId, 'file-1')],
+	])('rejects %s for an agent outside the project before delegating', async (_name, call) => {
+		agentRepository.findByIdAndProjectId.mockResolvedValue(null);
+
+		await expect(call()).rejects.toThrow(NotFoundError);
+
+		expect(knowledgeFileService.uploadFiles).not.toHaveBeenCalled();
+		expect(knowledgeFileService.listFiles).not.toHaveBeenCalled();
+		expect(knowledgeRetrievalService.warmSandbox).not.toHaveBeenCalled();
+		expect(knowledgeFileService.deleteFile).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		['uploadFiles', async () => await service.uploadFiles(agentId, projectId, [makeMulterFile()])],
+		['deleteFile', async () => await service.deleteFile(agentId, projectId, 'file-1')],
+	])('rejects %s for an archived agent, and still lists its files', async (_name, call) => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({
 			id: agentId,
 			projectId,
-			activeVersionId: 'version-1',
+			isArchived: true,
 		} as never);
-		const tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-upload-'));
-		const tempFilePath = path.join(tempDirectory, 'notes.txt');
-		await writeFile(tempFilePath, 'hello world');
 
-		await service.uploadFiles(agentId, projectId, [
-			makeMulterFile({
-				originalname: 'notes.txt',
-				path: tempFilePath,
-				size: 11,
-				buffer: undefined,
-			}),
-		]);
+		await expect(call()).rejects.toThrow('Cannot update an archived agent');
+		expect(knowledgeFileService.uploadFiles).not.toHaveBeenCalled();
+		expect(knowledgeFileService.deleteFile).not.toHaveBeenCalled();
 
-		expect(agentKnowledgeSandboxService.invalidateMirror).toHaveBeenCalledWith(projectId, agentId);
-		expect(agentKnowledgeSandboxService.prewarmMirrorInBackground).toHaveBeenCalledWith(
-			projectId,
-			agentId,
-		);
+		await service.listFiles(agentId, projectId);
+		expect(knowledgeFileService.listFiles).toHaveBeenCalled();
 	});
 
-	it('invalidates and pre-warms the mirror after a file deletion', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({
-			id: agentId,
-			projectId,
-			activeVersionId: 'version-1',
-		} as never);
-		await agentFileRepository.save(makeAgentFile({ id: 'file-1' }));
+	it('removes the temp files of an upload that is rejected before it reaches the knowledge module', async () => {
+		agentRepository.findByIdAndProjectId.mockResolvedValue(null);
+		const tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-facade-'));
+		try {
+			const tempFilePath = path.join(tempDirectory, 'notes.txt');
+			await writeFile(tempFilePath, 'hello');
 
-		await service.deleteFile(agentId, projectId, 'file-1');
+			await expect(
+				service.uploadFiles(agentId, projectId, [makeMulterFile({ path: tempFilePath })]),
+			).rejects.toThrow(NotFoundError);
 
-		expect(agentKnowledgeSandboxService.invalidateMirror).toHaveBeenCalledWith(projectId, agentId);
-		expect(agentKnowledgeSandboxService.prewarmMirrorInBackground).toHaveBeenCalledWith(
-			projectId,
-			agentId,
-		);
+			await expect(access(tempFilePath)).rejects.toThrow();
+		} finally {
+			await rm(tempDirectory, { recursive: true, force: true });
+		}
+	});
+
+	describe('with the knowledge module inactive', () => {
+		beforeEach(() => {
+			service = makeService(makeKnowledgeAvailabilityService({ isKnowledgeActive: false }));
+		});
+
+		it.each([
+			[
+				'uploadFiles',
+				async () => await service.uploadFiles(agentId, projectId, [makeMulterFile()]),
+			],
+			['listFiles', async () => await service.listFiles(agentId, projectId)],
+			['warmKnowledgeSandbox', async () => await service.warmKnowledgeSandbox(agentId, projectId)],
+			['deleteFile', async () => await service.deleteFile(agentId, projectId, 'file-1')],
+		])('rejects %s before delegating', async (_name, call) => {
+			await expect(call()).rejects.toThrow(NotFoundError);
+
+			expect(agentRepository.findByIdAndProjectId).not.toHaveBeenCalled();
+			expect(knowledgeFileService.uploadFiles).not.toHaveBeenCalled();
+			expect(knowledgeFileService.listFiles).not.toHaveBeenCalled();
+			expect(knowledgeFileService.deleteFile).not.toHaveBeenCalled();
+			expect(knowledgeRetrievalService.warmSandbox).not.toHaveBeenCalled();
+		});
+
+		it('keeps the stored blobs on agent deletion and warns, because the file entity is not registered', async () => {
+			await service.deleteAllFilesForAgent(projectId, agentId);
+
+			expect(knowledgeFileService.deleteAll).not.toHaveBeenCalled();
+			expect(logger.warn).toHaveBeenCalledWith(
+				expect.stringContaining('Knowledge module is inactive'),
+				{ agentId },
+			);
+		});
+
+		it('still destroys the sandbox, which needs no module entity', async () => {
+			await service.destroyKnowledgeSandbox(projectId, agentId);
+
+			expect(knowledgeRetrievalService.destroySandbox).toHaveBeenCalledWith(scope);
+		});
 	});
 });

@@ -7,7 +7,8 @@ import { readdir, readFile } from 'fs/promises';
 import { RoutingNode, UnrecognizedNodeTypeError } from 'n8n-core';
 import type { ExecuteContext } from 'n8n-core';
 import type { INodeType, INodeTypeDescription, INodeTypes, IVersionedNodeType } from 'n8n-workflow';
-import { deepCopy, isHitlToolType, NodeHelpers, UnexpectedError, UserError } from 'n8n-workflow';
+import { deepCopy, isHitlToolType, NodeHelpers } from 'n8n-workflow';
+import { UnexpectedError, UserError } from '@n8n/errors';
 import { join, dirname } from 'path';
 
 import { LoadNodesAndCredentials } from './load-nodes-and-credentials';
@@ -28,10 +29,15 @@ export class NodeTypes implements INodeTypes {
 	 * A "synthetic tool" has no implementation of its own: workflows persist
 	 * names like `gmailTool`, and the registry fabricates that node on demand by
 	 * converting the `gmail` base node into an agent tool.
+	 *
+	 * A tool name listed in `NODES_EXCLUDE` is never synthetic. It resolves to
+	 * itself, so loading it fails as an unrecognized type.
 	 */
-	private resolveBaseName(nodeTypeName: string): { baseName: string; isSyntheticTool: boolean } {
+	resolveBaseName(nodeTypeName: string): { baseName: string; isSyntheticTool: boolean } {
 		const isSyntheticTool =
-			nodeTypeName.endsWith('Tool') && !this.loadNodesAndCredentials.recognizesNode(nodeTypeName);
+			nodeTypeName.endsWith('Tool') &&
+			!this.loadNodesAndCredentials.recognizesNode(nodeTypeName) &&
+			!this.loadNodesAndCredentials.excludeNodes.includes(nodeTypeName);
 		return {
 			baseName: isSyntheticTool ? stripToolSuffix(nodeTypeName) : nodeTypeName,
 			isSyntheticTool,
@@ -48,7 +54,13 @@ export class NodeTypes implements INodeTypes {
 		const nodeType = this.loadNodesAndCredentials.getNode(nodeTypeName);
 		const { description } = NodeHelpers.getVersionedNodeType(nodeType.type, version);
 
-		return { description: { ...description }, sourcePath: nodeType.sourcePath };
+		return {
+			description: { ...description },
+			sourcePath: this.loadNodesAndCredentials.resolveNodeSourcePath(
+				nodeTypeName,
+				nodeType.sourcePath,
+			),
+		};
 	}
 
 	/**
@@ -62,13 +74,15 @@ export class NodeTypes implements INodeTypes {
 		const { description, sourcePath } = this.getWithSourcePath(nodeTypeName, version);
 
 		if (locale !== 'en') {
-			const translationPath = await this.getNodeTranslationPath({
-				nodeSourcePath: sourcePath,
-				longNodeType: description.name,
-				locale,
-			});
-
 			try {
+				// The directory read in `getNodeTranslationPath` can fail too, so it
+				// stays inside the guard: a missing translation must not fail the request.
+				const translationPath = await this.getNodeTranslationPath({
+					nodeSourcePath: sourcePath,
+					longNodeType: description.name,
+					locale,
+				});
+
 				const translation = await readFile(translationPath, 'utf8');
 				// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 				description.translation = JSON.parse(translation);
@@ -113,9 +127,12 @@ export class NodeTypes implements INodeTypes {
 
 		if (!isSyntheticTool) return versionedNodeType;
 
+		// Cache key must include the version: a base node can be usable as a tool
+		// at several versions (e.g. Notion v2 vs v3), and they must not collide.
+		const cacheKey = `${origType}?version=${version ?? 'default'}`;
 		const { loadedNodes } = this.loadNodesAndCredentials;
-		if (origType in loadedNodes) {
-			return loadedNodes[origType].type as INodeType;
+		if (cacheKey in loadedNodes) {
+			return loadedNodes[cacheKey].type as INodeType;
 		}
 
 		const isHitlTool = isHitlToolType(origType);
@@ -138,7 +155,7 @@ export class NodeTypes implements INodeTypes {
 		// For HITL tools, use convertNodeToHitlTool; for regular AI tools, use convertNodeToAiTool
 		const tool = isHitlTool ? convertNodeToHitlTool(clonedNode) : convertNodeToAiTool(clonedNode);
 
-		loadedNodes[origType] = { sourcePath: '', type: tool };
+		loadedNodes[cacheKey] = { sourcePath: '', type: tool };
 		return tool;
 	}
 

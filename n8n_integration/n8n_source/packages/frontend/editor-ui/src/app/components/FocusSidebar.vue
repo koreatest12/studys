@@ -4,7 +4,7 @@ import { injectWorkflowDocumentStore } from '@/app/stores/workflowDocument.store
 import { useExperimentalNdvStore } from '@/features/workflows/canvas/experimental/experimentalNdv.store';
 import { useSetupPanelStore } from '@/features/setupPanel/setupPanel.store';
 import { useInjectWorkflowId } from '@/app/composables/useInjectWorkflowId';
-import { useTelemetry } from '@/app/composables/useTelemetry';
+import { useTelemetry } from '@n8n/composables/useTelemetry';
 import { useDeviceSupport } from '@n8n/composables/useDeviceSupport';
 import { useTelemetryContext } from '@/app/composables/useTelemetryContext';
 import { computed, onMounted, watch, useTemplateRef, onBeforeUnmount } from 'vue';
@@ -191,7 +191,7 @@ onBeforeUnmount(() => {
 					<FocusSidebarTabs v-model="selectedTab" :tab-labels="labelOverrides" />
 				</div>
 				<div v-if="showSetupPanel" :class="$style['setup-panel-wrapper']">
-					<SetupPanel />
+					<SetupPanel :is-read-only="isCanvasReadOnly" />
 				</div>
 				<div v-else-if="showEvaluationsPanel" :class="$style['setup-panel-wrapper']">
 					<TestsPanel />

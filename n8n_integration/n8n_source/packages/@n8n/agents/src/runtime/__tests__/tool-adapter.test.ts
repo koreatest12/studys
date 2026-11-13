@@ -1,5 +1,7 @@
+import { createOpenAI } from '@ai-sdk/openai';
 import type { JSONSchema7 } from 'json-schema';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 import type { BuiltTool } from '../../types';
 import { executeTool, toAiSdkTools } from '../tools/tool-adapter';
@@ -175,6 +177,61 @@ describe('toAiSdkTools — JSON Schema / fixSchema', () => {
 		expect(firstCall.type).toBe('object');
 		expect(secondCall.type).toBe('object');
 	});
+
+	it('disables provider strict mode for MCP tools without changing optional properties', () => {
+		const rawSchema: JSONSchema7 = {
+			type: 'object',
+			properties: {
+				team: { type: 'string' },
+				query: { type: 'string' },
+				priority: { type: 'number' },
+			},
+			required: ['team'],
+		};
+
+		const result = toAiSdkTools([makeJsonSchemaTool(rawSchema, { mcpTool: true })]);
+
+		expect(result.testTool).toMatchObject({ strict: false });
+		expect(jsonSchemaMock).toHaveBeenCalledWith(rawSchema);
+		expect(jsonSchemaMock.mock.calls[0][0].required).toEqual(['team']);
+	});
+
+	it.each(['chat', 'responses'] as const)(
+		'prepares constrained MCP record keys for OpenAI %s',
+		async (apiStyle) => {
+			const rawSchema = zodToJsonSchema(
+				z.object({
+					tools: z.record(
+						z.string().min(1),
+						z.enum(['always_allow', 'require_approval', 'blocked']),
+					),
+				}),
+			) as JSONSchema7;
+			const originalSchema = structuredClone(rawSchema);
+			const tools = toAiSdkTools([makeJsonSchemaTool(rawSchema, { mcpTool: true })]);
+			const provider = createOpenAI({
+				apiKey: 'test-key',
+				fetch: async () => {
+					throw new Error('Schema accepted before network');
+				},
+			});
+
+			await expect(
+				provider[apiStyle]('gpt-4.1-mini').doGenerate({
+					prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+					tools: [
+						{
+							type: 'function',
+							name: 'testTool',
+							inputSchema: jsonSchemaMock.mock.calls[0][0],
+							strict: tools.testTool.strict,
+						},
+					],
+				}),
+			).rejects.toThrow('Schema accepted before network');
+			expect(rawSchema).toEqual(originalSchema);
+		},
+	);
 });
 
 // ---------------------------------------------------------------------------
@@ -197,6 +254,21 @@ describe('toAiSdkTools — description forwarding', () => {
 // ---------------------------------------------------------------------------
 
 describe('executeTool — context propagation', () => {
+	it('passes MCP tool input to the handler unchanged', async () => {
+		const handler = vi.fn().mockResolvedValue('ok');
+		const tool: BuiltTool = {
+			name: 'linear_list_issues',
+			description: 'List Linear issues',
+			mcpTool: true,
+			handler,
+		};
+		const input = { team: 'Agent', query: '', priority: 0 };
+
+		await executeTool(input, tool);
+
+		expect(handler.mock.calls[0][0]).toBe(input);
+	});
+
 	it('passes the run abort signal to the tool handler', async () => {
 		const handler = vi.fn().mockResolvedValue('ok');
 		const tool: BuiltTool = { name: 'cancellable', description: 'd', handler };
